@@ -1,0 +1,76 @@
+{
+  "_comment": "Indexed by TerrainTyper.Type. Order is load-bearing — do not reorder without changing the enum. move_cost is a multiplier on the base step cost; -1 means impassable. spotting is a multiplier on base spotting range for a unit standing on the tile. blocker_h is metres of LOS-opaque cover above ground level.",
+  "cliff_colour": "#5f584e",
+  "types": [
+    {
+      "name": "open",
+      "move_cost": 1.0,
+      "spotting": 1.0,
+      "blocker_h": 0.0,
+      "colour": "#7c8a55"
+    },
+    {
+      "name": "scrub",
+      "move_cost": 1.2,
+      "spotting": 0.9,
+      "blocker_h": 0.0,
+      "colour": "#8b8f5d"
+    },
+    {
+      "name": "woods",
+      "move_cost": 1.8,
+      "spotting": 0.4,
+      "blocker_h": 8.0,
+      "colour": "#3f5133"
+    },
+    {
+      "name": "marsh",
+      "move_cost": 2.2,
+      "spotting": 0.8,
+      "blocker_h": 0.0,
+      "colour": "#5c6b52"
+    },
+    {
+      "name": "rock",
+      "move_cost": 1.6,
+      "spotting": 0.95,
+      "blocker_h": 0.0,
+      "colour": "#8a8378"
+    },
+    {
+      "name": "water",
+      "move_cost": -1.0,
+      "spotting": 1.0,
+      "blocker_h": 0.0,
+      "colour": "#3b5f78"
+    },
+    {
+      "name": "ford",
+      "move_cost": 1.6,
+      "spotting": 1.0,
+      "blocker_h": 0.0,
+      "colour": "#6d7f7d"
+    },
+    {
+      "name": "road",
+      "move_cost": 0.6,
+      "spotting": 1.0,
+      "blocker_h": 0.0,
+      "colour": "#9a8f7a"
+    },
+    {
+      "name": "field",
+      "move_cost": 1.0,
+      "spotting": 0.95,
+      "blocker_h": 0.0,
+      "colour": "#a89a63"
+    },
+    {
+      "name": "village",
+      "move_cost": 1.4,
+      "spotting": 0.5,
+      "blocker_h": 6.0,
+      "colour": "#8e7f70"
+    }
+  ]
+}

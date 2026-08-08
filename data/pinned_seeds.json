@@ -1,0 +1,5 @@
+{
+  "_comment": "Regression maps. Populated by tools/gen_batch.gd once 4.11 selects five passing seeds. Each entry records the seed and the metrics measured when it was pinned, so a later generator change shows up as a metric diff. Engine version is recorded because float behaviour is not guaranteed bit-stable across Godot releases — see docs/decisions/0010.",
+  "engine_version": null,
+  "seeds": []
+}

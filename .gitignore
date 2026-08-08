@@ -1,0 +1,22 @@
+# Godot 4 editor + engine artifacts
+.godot/
+/android/
+
+# Import cache
+*.import
+
+# Exported builds
+/build/
+/export/
+*.exe
+*.pck
+*.zip
+
+# Generated diagnostics (heightmap dumps, screenshots, batch output)
+/dumps/
+/out/
+
+# OS noise
+Thumbs.db
+.DS_Store
+desktop.ini

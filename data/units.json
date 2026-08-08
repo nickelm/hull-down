@@ -1,0 +1,64 @@
+{
+  "_comment": "v1 roster. Defined now, unused in iteration 1 — only the movement block is read (by the tank entity in 4.12). Armour is millimetres of effective thickness by facing: front / side / rear / top. Penetration is millimetres at 1000 m. Shred is the per-hit armour degradation on a non-penetrating hit. Optics is the base spotting range in metres.",
+
+  "units": {
+    "light": {
+      "display_name": "Light Tank",
+      "role": "Recon, flanking, armour shred",
+      "movement": {
+        "mp": 300,
+        "turn_cost_per_45": 2,
+        "reverse_mult": 1.5
+      },
+      "armour": { "front": 40, "side": 22, "rear": 18, "top": 12 },
+      "gun": {
+        "calibre_mm": 45,
+        "penetration_mm": 55,
+        "shred_mm": 6,
+        "shots_per_action": 2
+      },
+      "optics": { "base_range_m": 1400 },
+      "dimensions": { "hull_h_m": 1.2, "turret_h_m": 2.2 }
+    },
+
+    "medium": {
+      "display_name": "Medium Tank",
+      "role": "Generalist",
+      "movement": {
+        "mp": 220,
+        "turn_cost_per_45": 3,
+        "reverse_mult": 1.6
+      },
+      "armour": { "front": 90, "side": 45, "rear": 35, "top": 20 },
+      "gun": {
+        "calibre_mm": 90,
+        "penetration_mm": 120,
+        "shred_mm": 10,
+        "shots_per_action": 1
+      },
+      "optics": { "base_range_m": 1150 },
+      "dimensions": { "hull_h_m": 1.4, "turret_h_m": 2.6 }
+    },
+
+    "heavy": {
+      "display_name": "Heavy Tank",
+      "role": "Anchor, breakthrough",
+      "movement": {
+        "mp": 150,
+        "turn_cost_per_45": 5,
+        "reverse_mult": 1.9
+      },
+      "armour": { "front": 180, "side": 80, "rear": 55, "top": 30 },
+      "gun": {
+        "calibre_mm": 122,
+        "penetration_mm": 190,
+        "shred_mm": 16,
+        "shots_per_action": 1
+      },
+      "optics": { "base_range_m": 900 },
+      "dimensions": { "hull_h_m": 1.6, "turret_h_m": 2.9 }
+    }
+  },
+
+  "default_unit": "medium"
+}

@@ -1,0 +1,271 @@
+﻿{
+  "_comment": "Every tunable number in Hull Down. Nothing here may be duplicated as a literal in .gd files. Read through Config with dotted paths, e.g. cfg.f(\"erosion.hydraulic.capacity_k\", 4.0).",
+
+  "world": {
+    "hf_size": 800,
+    "hf_cell_m": 2.5,
+    "grid_size": 200,
+    "tile_m": 10.0,
+    "quant_m": 0.5,
+    "_relief_note": "The dial that decides how dramatic the ground looks, and it is bounded by the escarpment band rather than by taste. Measured at SHIPPING settings (800 heightfield, 500k droplets) across four seeds: 60 m gives 9%, 65 m gives 11-14%, 70 m gives 12-15%, 80 m gives 16-18%, 95 m gives 21%. The 3-15% band in docs/decisions/0009 therefore caps this around 65-70 m; 65 leaves headroom on the worst seed and keeps every road inside its 1 m gradient limit. Measure at full droplet count — hydraulic erosion smooths the fine detail, so a reduced-droplet tuning run reads several points pessimistic. It is NOT decoupled from drivability by the angle of repose: impassability is itself an angle (a 2.5 m step over a 10 m tile is 14 degrees), and an angle does not care what scale it is measured at. Dropping repose from 34 to 18 moved escarpment by under one point and cost 20x the thermal passes. See docs/decisions/0013.",
+    "target_relief_m": 65.0,
+    "sea_floor_m": 0.0
+  },
+
+  "_relief_note": "Octave count and h_exp are the escarpment dial, not target_relief_m. With base_freq 0.0016 and lacunarity ~2, octave k has a wavelength of about 625/2^k metres — so octaves 6 and 7 sit at 18 and 9 m, right at the ten-metre tile scale, and their slope contribution is what decides how many tile edges come out impassable. Seven octaves put half the map behind a cliff no matter how far the total relief was scaled down.",
+  "relief": {
+    "octaves": 5,
+    "base_freq": 0.0016,
+    "lacunarity": 2.03,
+    "gain": 1.9,
+    "offset": 1.0,
+    "h_exp": 0.30,
+    "warp_freq": 0.0009,
+    "warp_amp_m": 140.0,
+    "strike_anisotropy": 0.34,
+    "tectonic_bands": 3,
+    "tectonic_weight": 0.42,
+    "tectonic_band_width_m": 260.0,
+    "edge_falloff_m": 120.0,
+    "_edge_falloff_note": "Only has to be deep enough that water reaches the map edge and leaves, so depression filling has somewhere to drain to. Sized against target_relief_m — at 25 m against 50 m of relief the border ramp was consuming half the map's height range. Held near a sixth of total relief.",
+    "edge_falloff_depth_m": 10.0
+  },
+
+  "erosion": {
+    "_capacity_note": "capacity_k is dimensional: heights here are metres over ~200 m of relief, not the normalized 0..1 field the textbook droplet model assumes. A value sized for 0..1 lets one droplet level its entire step, which digs a pit, traps the next droplet in it, and stipples the uplands instead of carving channels. Keep capacity_k * typical_speed * erode_speed at a few centimetres per step.",
+    "hydraulic": {
+      "droplet_count": 500000,
+      "max_lifetime": 64,
+      "inertia": 0.10,
+      "capacity_k": 0.15,
+      "min_capacity": 0.0008,
+      "erode_speed": 0.40,
+      "deposit_speed": 0.30,
+      "evaporate": 0.015,
+      "gravity": 4.0,
+      "initial_water": 1.0,
+      "initial_speed": 1.0,
+      "brush_radius": 2,
+      "mass_drift_max_pct": 3.0,
+      "progress_every": 50000
+    },
+    "thermal": {
+      "repose_deg": 34.0,
+      "relax": 1.0,
+      "_max_passes_note": "A safety cap, not a target. Talus propagates one cell per pass, so a tall scarp needs passes proportional to how far the collapse has to travel — 800x800 converges around 1000-1500. The active list makes a pass cost proportional to the number of cells still moving, so passes after the field settles are nearly free and overshooting the cap costs little.",
+      "max_passes": 2500,
+      "converge_slack_m": 0.001
+    }
+  },
+
+  "hydrology": {
+    "fill_epsilon_m": 0.001,
+    "fill_bucket_m": 0.01,
+    "stream_threshold_frac": 0.0008,
+    "river_threshold_frac": 0.006,
+    "_carve_note": "Sized against target_relief_m. At 5 m into 50 m of relief the channel network was cutting a tenth of the map's whole height range, which drove enough bed inversions to break the downhill-flow invariant. 2.5 m is one escarpment threshold deep, so a river bank is a wall — which is the point of a river. Raising it to 4 m was tried and reverted: river banks became 8 quanta deep and showed up directly as impassable edges.",
+    "carve_k": 4.5,
+    "carve_exp": 0.42,
+    "max_carve_depth_m": 2.5,
+    "channel_half_width_cells": 2.5,
+    "river_half_width_cells": 4.5,
+    "min_bed_slope": 0.0012,
+    "water_fill_fraction": 0.45,
+    "stream_tile_min_frac": 0.25,
+    "_ford_note": "ford_max_depth_m and ford_max_bank are the profile a crossing is eased to, not a filter on which cells qualify — rivers are carved metres deep, so nothing passes a sub-metre gate naturally. ford_target crossings are chosen by score and eased as needed; min_fords is the floor the acceptance check asserts.",
+    "ford_max_depth_m": 0.9,
+    "ford_max_bank": 0.16,
+    "ford_target": 3,
+    "min_fords": 2,
+    "ford_separation_tiles": 22,
+    "ford_flatten_radius_cells": 4
+  },
+
+  "traversal": {
+    "normal_max_dl": 2,
+    "rough_max_dl": 4,
+    "rough_extra_cost": 8,
+    "earthwork_penalty": 40,
+    "repair_max_passes": 8
+  },
+
+  "_zones_note": "Dimensions are fractions of the map's edge length, not absolute tile counts, so the quarter-scale test pipeline gets a proportionally smaller zone instead of one covering a third of the board. On the 200-tile shipping map these are 40 x 20 tiles with a 4-tile margin.",
+  "zones": {
+    "count": 2,
+    "width_frac": 0.2,
+    "depth_frac": 0.1,
+    "edge_margin_frac": 0.02,
+    "objective_count": 3,
+    "objective_min_separation_frac": 0.2
+  },
+
+  "_terrain_typing_note": "Moisture and elevation are percentiles of the map's own distribution, so a threshold of 0.62 reads as 'the wetter 38%' and means the same thing on every seed. Slope is a real gradient (rise over run).",
+  "terrain_typing": {
+    "rock_slope": 0.45,
+    "rock_elev_pct": 0.93,
+    "marsh_moisture": 0.85,
+    "marsh_slope": 0.10,
+    "marsh_elev_pct": 0.30,
+    "woods_moisture": 0.82,
+    "woods_slope_max": 0.40,
+    "woods_elev_pct_max": 0.65,
+    "woods_patch_freq": 0.0033,
+    "woods_patch_bias": 0.10,
+    "scrub_moisture": 0.50,
+    "smooth_passes": 3
+  },
+
+  "roads": {
+    "count": 2,
+    "base_cost": 100.0,
+    "slope_k": 55.0,
+    "water_penalty": 4000.0,
+    "ford_discount": 0.06,
+    "terrain_k": 30.0,
+    "max_road_dl": 2,
+    "junction_hub_sides": 8,
+    "corridor_radius": 2,
+    "cut_fill_passes": 400,
+    "resmooth_max_passes": 8,
+    "bezier_samples": 8,
+    "width_m": 4.5,
+    "min_endpoint_separation_frac": 0.3
+  },
+
+  "settlements": {
+    "min_junction_degree": 3,
+    "village_radius_tiles": 2,
+    "field_radius_tiles": 4,
+    "max_villages": 4,
+    "min_separation_tiles": 25
+  },
+
+  "movement": {
+    "base_ortho": 10,
+    "base_diag": 14,
+    "turn_cost_per_45": 3,
+    "reverse_mult": 1.6,
+    "default_mp": 220,
+    "max_path_cost": 12000
+  },
+
+  "visibility": {
+    "hull_h_m": 1.4,
+    "turret_h_m": 2.6,
+    "max_range_tiles": 90,
+    "ray_density": 1.25,
+    "min_range_m": 5.0
+  },
+
+  "_look_note": "Presentation only. Nothing in sim/ reads this section.",
+  "look": {
+    "colour_jitter": 0.02,
+    "grid_strength": 0.16,
+    "tank_colour": "#4a5240",
+    "tank_colour_side2": "#6b453d",
+    "road_lift_m": 0.14,
+    "_light_note": "Ambient is deliberately low and the sun low-ish in the sky. Flat shading carries all the relief information in the difference between face brightnesses, so strong ambient fills the shadows and the terrain reads as a flat sheet. Fog is a depth cue over 2 km, not weather — at 0.0007 it whited out the whole map.",
+    "sun_azimuth_deg": 305.0,
+    "sun_altitude_deg": 38.0,
+    "sun_energy": 1.6,
+    "ambient_energy": 0.18,
+    "sky_horizon": "#c2ccd4",
+    "sky_top": "#6d92bd",
+    "fog_density": 0.00012,
+
+    "_hud_note": "The HUD is drawn in raw pixels because window/stretch/mode is disabled, which is what keeps the 3D view sharp and the mouse picking honest at any window size. reference_height is what the font sizes are authored against; Hud scales them by the real viewport height over this, so a 4K window does not get half-size text.",
+    "hud": {
+      "font_size": 13,
+      "outline_size": 4,
+      "reference_height": 900.0,
+      "max_scale": 2.0,
+      "margin_px": 14,
+      "button_gap_px": 8,
+      "button_min_w_px": 104,
+      "button_min_h_px": 30,
+      "text_colour": "#c7d1da",
+      "ready_colour": "#8ce39a"
+    },
+
+    "_scatter_note": "Tree height is read from terrain.json's woods blocker_h and building height from village blocker_h — never typed here. The LOS model asserts 8 m of cover on a woods tile, and the player has to be able to see the thing that is doing the blocking. Scale jitter is cosmetic; occlusion stays flat and per tile.",
+    "scatter": {
+      "trees_per_woods_tile": 3,
+      "trunk_frac": 0.28,
+      "canopy_radius_m": 2.3,
+      "inset_frac": 0.14,
+      "scale_jitter": 0.10,
+      "tree_shadows": false,
+      "visible_range_m": 900.0,
+      "trunk_colour": "#4a3b2c",
+      "canopy_colour": "#33452a",
+      "building_colour": "#9a8b7c",
+      "roof_colour": "#6e4f42",
+      "building_w_m": 6.0,
+      "building_d_m": 7.0
+    }
+  },
+
+  "_overlay_note": "Overlays are drawn as region outlines, not as a tint over the ground. A flat tint recolours the terrain, so the old light-blue movement range read as water and competed with the thing it was annotating. border_width_m must stay well under half a tile or the borders of a one-tile region merge into a solid block. Emission is what makes the line legible on a face the sun is not hitting; without it an outline is just a thinner tint.",
+  "overlay": {
+    "border_width_m": 1.4,
+    "glow_width_m": 3.5,
+    "fill_strength": 0.10,
+    "emission_strength": 1.6,
+    "glow_strength": 0.30,
+    "path_fill_strength": 0.30,
+    "move_colour": "#ffb43c",
+    "exposed_colour": "#ff5436",
+    "hull_down_colour": "#5ed66a",
+    "hover_colour": "#ffffff",
+    "path_colour": "#fff0d2"
+  },
+
+  "camera": {
+    "pan_speed_m": 260.0,
+    "fast_multiplier": 3.0,
+    "zoom_step": 0.12,
+    "min_height_above_ground_m": 12.0,
+    "max_height_m": 1400.0,
+    "start_height_m": 420.0,
+    "orbit_sensitivity": 0.32,
+    "edge_scroll_margin_px": 6.0,
+    "edge_scroll_speed_m": 220.0,
+    "min_pitch_deg": -85.0,
+    "max_pitch_deg": -12.0,
+    "start_pitch_deg": -46.0,
+    "bounds_margin_m": 200.0,
+    "gunner_fov_deg": 28.0,
+    "_focus_note": "start_height_m is the overview distance and is no longer the first thing anyone sees — boot lands on the first unit at focus_distance_m. focus_only_zooms_in means selecting a unit pulls you in if you were further out but never yanks you back out if you had deliberately zoomed closer; the F key overrides that and always takes the focus distance. min_distance_m replaces a hardcoded 20.0 in tactical_camera.gd.",
+    "focus_distance_m": 130.0,
+    "min_distance_m": 25.0,
+    "focus_lerp_rate": 6.0,
+    "zoom_lerp_rate": 12.0,
+    "focus_only_zooms_in": true
+  },
+
+  "_turn_note": "Two units a side, hot-seat, side-alternating — docs/decisions/0012. There is no AI in iteration 1, so ending a turn hands control over rather than triggering anything. The two-actions-per-unit budget from 0003 stays in iteration 2: actions are shooting and overwatch, and there is no combat yet for a second action to spend itself on.",
+  "turn": {
+    "units_per_side": 2,
+    "sides": 2,
+    "unit_spacing_tiles": 6,
+    "auto_advance_on_exhausted": true
+  },
+
+  "metrics": {
+    "sightline_samples": 5000,
+    "sightline_median_min_m": 300.0,
+    "sightline_median_max_m": 900.0,
+    "hull_down_crest_reach_tiles": 12,
+    "hull_down_stride": 2,
+    "hull_down_min_frac": 0.05,
+    "_chokepoint_note": "Expressed as a fraction of the map's edge length, not an absolute tile count. A vertex min-cut between two edges of a 95% drivable 200-tile map is tens of tiles wide; the spec's 2-6 would mean a canyon. As a fraction the target is scale-free and still rewards a map that funnels.",
+    "chokepoint_frac_min": 0.05,
+    "chokepoint_frac_max": 0.22,
+    "chokepoint_cap": 80,
+    "zone_balance_max_pct": 15.0,
+    "zone_balance_candidates": 12,
+    "zone_balance_weight": 40.0,
+    "escarpment_frac_min": 0.03,
+    "escarpment_frac_max": 0.15
+  }
+}
