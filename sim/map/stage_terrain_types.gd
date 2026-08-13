@@ -22,7 +22,21 @@ extends RefCounted
 const TAG := "terrain"
 
 ## Indices into terrain.json. The order is the file's order and is load-bearing.
-enum Type { OPEN = 0, SCRUB = 1, WOODS = 2, MARSH = 3, ROCK = 4, WATER = 5, FORD = 6, ROAD = 7, FIELD = 8, VILLAGE = 9 }
+##
+## The forest tiers are appended rather than sitting next to WOODS. These are raw array offsets into
+## `cfg.terrain_colors` and friends, so inserting one at index 3 would renumber everything above it
+## and silently repaint every map.
+enum Type {
+	OPEN = 0, SCRUB = 1, WOODS = 2, MARSH = 3, ROCK = 4, WATER = 5, FORD = 6, ROAD = 7,
+	FIELD = 8, VILLAGE = 9, WOODS_LIGHT = 10, WOODS_HEAVY = 11,
+}
+
+
+## Any of the three forest tiers. Tests and metrics that mean "is this forest" must ask this rather
+## than comparing against WOODS, or splitting the type into tiers silently halves whatever they were
+## measuring.
+static func is_woods(type_id: int) -> bool:
+	return type_id == Type.WOODS or type_id == Type.WOODS_LIGHT or type_id == Type.WOODS_HEAVY
 
 
 static func assign(md: MapData, cfg: Config, master_seed: int) -> void:
@@ -59,7 +73,7 @@ static func assign(md: MapData, cfg: Config, master_seed: int) -> void:
 	var t: PackedByteArray = md.terrain
 	for i: int in n:
 		# Water first: a river tile is a river regardless of how dry the surrounding hillside is.
-		# Streams are not their own type — a stream at ten-metre tile scale is wet ground, not an
+		# Streams are not their own type — a stream at ten-meter tile scale is wet ground, not an
 		# obstacle, and making every tile a stream touches impassable would wall the map off.
 		var wtr: int = int(md.water[i])
 		if wtr == MapData.Water.RIVER:
@@ -91,8 +105,66 @@ static func assign(md: MapData, cfg: Config, master_seed: int) -> void:
 				t[i] = Type.OPEN
 	md.terrain = t
 
-	smooth_majority(md, smooth_passes)
+	smooth_majority(md, cfg, smooth_passes)
+	_promote_forest_tiers(md, cfg, master_seed)
 	apply_terrain_attributes(md, cfg)
+
+
+## Split the woods into light, ordinary and heavy stands.
+##
+## This runs **after** majority smoothing, and that ordering is the whole trick. Smoothing replaces
+## any tile whose neighbors hold a strict majority of one type, three passes over. A heavy core
+## assigned inside an ordinary-woods patch is a minority everywhere along its own edge, so smoothing
+## eats it back to ordinary almost entirely — the tiers would exist in the data and not on the map.
+##
+## The split is by **rank**, not by an absolute noise threshold. A fixed threshold gives whatever
+## fraction that seed's noise happens to put above it, which is how "the wetter 38%" once turned out
+## to mean the wetter 2%. Ranking the woods tiles against each other makes "the densest fifth of the
+## forest" mean the densest fifth of the forest on every seed.
+static func _promote_forest_tiers(md: MapData, cfg: Config, master_seed: int) -> void:
+	var heavy_frac: float = cfg.f("terrain_typing.woods_heavy_frac", 0.18)
+	var light_frac: float = cfg.f("terrain_typing.woods_light_frac", 0.45)
+	var freq: float = cfg.f("terrain_typing.woods_tier_freq", 0.006)
+
+	# Its own substream tag. Reusing "terrain.patch" would couple the tier layout to the stand
+	# layout, and every stand would be dense in the same corner of itself.
+	var tier: FastNoiseLite = NoiseField.build_single(master_seed, TAG + ".tier", freq)
+
+	# Score every woods tile, packed for a single integer sort: density in the high bits, tile index
+	# in the low. Sorting a PackedInt64Array rather than an Array of dictionaries keeps this
+	# deterministic without relying on a comparator, which is the same trick place_objectives uses.
+	var scored := PackedInt64Array()
+	for i: int in md.n:
+		if int(md.terrain[i]) != Type.WOODS:
+			continue
+		# Never on a watercourse. Majority smoothing can turn a stream tile into woods — marsh is
+		# not a fixed type — and promoting that to heavy timber makes the stream impassable, which
+		# is exactly the wall-the-map-off outcome the stream rule in `assign` exists to prevent.
+		# Heavy timber standing in a stream bed is also not a thing.
+		if md.water[i] != MapData.Water.NONE:
+			continue
+		var v: float = tier.get_noise_2d(
+			float(i % md.size) * md.tile_m, float(i / md.size) * md.tile_m
+		)
+		# Ascending sort, so negate density to get the densest first.
+		var key: int = 1000000 - clampi(int((v + 1.0) * 500000.0), 0, 999999)
+		scored.append((key << 21) | i)
+	scored.sort()
+
+	var total: int = scored.size()
+	if total == 0:
+		return
+	var heavy_end: int = int(float(total) * heavy_frac)
+	var light_start: int = total - int(float(total) * light_frac)
+
+	var t: PackedByteArray = md.terrain
+	for k: int in total:
+		var tile: int = int(scored[k] & 0x1FFFFF)
+		if k < heavy_end:
+			t[tile] = Type.WOODS_HEAVY
+		elif k >= light_start:
+			t[tile] = Type.WOODS_LIGHT
+	md.terrain = t
 
 
 ## Types that a majority vote must never move. Water and fords come from hydrology and are ground
@@ -106,12 +178,18 @@ static func _is_fixed(type_id: int) -> bool:
 	)
 
 
-## Replace each tile with the most common type among its eight neighbours, where that type is a
+## Replace each tile with the most common type among its eight neighbors, where that type is a
 ## clear majority. Removes the salt-and-pepper left by thresholding without eroding real edges.
-static func smooth_majority(md: MapData, passes: int) -> void:
+##
+## The vote histogram is sized from the data file rather than from a literal. It was `10`, twice,
+## which is the kind of constant that does not fail loudly: adding an eleventh terrain type makes
+## `counts[nt] += 1` an out-of-bounds write, and a hard runtime error in a headless run means no
+## `TESTS_COMPLETE` sentinel and an exit code that cannot be trusted.
+static func smooth_majority(md: MapData, cfg: Config, passes: int) -> void:
 	var size: int = md.size
+	var type_count: int = cfg.type_count()
 	var counts := PackedInt32Array()
-	counts.resize(10)
+	counts.resize(type_count)
 
 	for _p: int in passes:
 		var src: PackedByteArray = md.terrain.duplicate()
@@ -139,11 +217,11 @@ static func smooth_majority(md: MapData, passes: int) -> void:
 				continue
 			var best: int = -1
 			var best_count: int = 0
-			for k: int in 10:
+			for k: int in type_count:
 				if counts[k] > best_count:
 					best_count = counts[k]
 					best = k
-			# Strictly more than half the neighbours, so genuine boundaries survive and only
+			# Strictly more than half the neighbors, so genuine boundaries survive and only
 			# isolated specks get absorbed.
 			if best >= 0 and best_count * 2 > total:
 				dst[i] = best
@@ -154,10 +232,21 @@ static func smooth_majority(md: MapData, passes: int) -> void:
 ## Copy the per-type numbers out of terrain.json into the flat arrays the hot paths read. Nothing
 ## downstream looks up a terrain type in a dictionary.
 ##
-## The `road` row is a **modifier**, not a tile type. Where a road runs, it sets the going and
-## clears the cover while the tile keeps whatever terrain is underneath — which is how a bridge over
-## a river is drivable while the tile is still water, and how a road through woods is still a road
-## on a woods tile. See docs/decisions/0011.
+## The `road` row is a **modifier**, not a tile type: the tile keeps whatever terrain is underneath,
+## so a road through woods is still a woods tile (docs/decisions/0011). But the modifier has two
+## halves and they are not the same thing:
+##
+##   **Deck** — where a road runs over ground the class could not otherwise enter, the road's cost
+##   replaces it. That is a *passability override*, and it is what makes a bridge over a river
+##   drivable. It is applied here, to the tile.
+##
+##   **Surface** — the discount for travelling along a road is applied to the **edge**, in
+##   `TraversalGraph`, and only where the step actually follows a road link. It is deliberately not
+##   applied here: a tile-level discount pays out to a tank crossing the road perpendicular, which
+##   is a vehicle that spent no time on the road at all.
+##
+## Cover is cleared on any road tile either way — a road is cut through the trees whichever way you
+## are driving.
 static func apply_terrain_attributes(md: MapData, cfg: Config) -> void:
 	var road_cost: float = cfg.terrain_move_cost[Type.ROAD]
 	for i: int in md.n:
@@ -165,8 +254,9 @@ static func apply_terrain_attributes(md: MapData, cfg: Config) -> void:
 		var cost: float = cfg.terrain_move_cost[t]
 		var blocker: float = cfg.terrain_blocker_h[t]
 		if md.road_links[i] != 0:
-			cost = road_cost
 			blocker = 0.0
+			if cost < 0.0:
+				cost = road_cost
 		md.move_cost[i] = -10 if cost < 0.0 else int(round(cost * 10.0))
 		md.blocker_h[i] = blocker
 
@@ -211,7 +301,7 @@ static func _percentile_of(values: PackedFloat32Array) -> PackedFloat32Array:
 	return out
 
 
-## Steepest neighbouring step, as a slope. Uses the quantized levels rather than the original
+## Steepest neighboring step, as a slope. Uses the quantized levels rather than the original
 ## heightfield so it agrees with what the transition classes say and with what the mesh will draw.
 static func _slope_field(md: MapData) -> PackedFloat32Array:
 	var size: int = md.size

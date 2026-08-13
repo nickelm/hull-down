@@ -4,7 +4,7 @@ extends RefCounted
 ## Water surfaces, as one quad per wet tile at that tile's own surface level.
 ##
 ## The spec says "water plane for rivers", and a single plane cannot work: a river descends tens of
-## metres between where it enters the map and where it leaves, so one plane either floods the
+## meters between where it enters the map and where it leaves, so one plane either floods the
 ## lowlands or hangs above the uplands. Per-tile quads step down with the river, exactly like the
 ## terraced ground beneath them, which is also the only version that agrees with what the LOS code
 ## thinks the terrain is.

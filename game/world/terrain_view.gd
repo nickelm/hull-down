@@ -61,9 +61,9 @@ func build(map: MapData, config: Config) -> Dictionary:
 	var t2: int = Time.get_ticks_usec()
 	var road_mesh: ArrayMesh = RoadMeshBuilder.build(md, cfg)
 	if road_mesh != null:
-		# The same shader as the terrain, not a StandardMaterial3D. Roads carry vertex colours and
+		# The same shader as the terrain, not a StandardMaterial3D. Roads carry vertex colors and
 		# up normals like the ground does, and putting them on the terrain shader is what makes the
-		# overlays tint them — on their own material a movement region had a grey hole down the
+		# overlays tint them — on their own material a movement region had a gray hole down the
 		# middle of every road. Grid lines are off: they belong to tile boundaries, not to a ribbon
 		# that crosses them.
 		var rm := ShaderMaterial.new()
@@ -114,16 +114,29 @@ func _apply_overlay_uniforms(mat: ShaderMaterial) -> void:
 	mat.set_shader_parameter("glow_strength", cfg.f("overlay.glow_strength", 0.30))
 	mat.set_shader_parameter("path_fill_strength", cfg.f("overlay.path_fill_strength", 0.30))
 
-	mat.set_shader_parameter("move_colour", cfg.colour("overlay.move_colour", Color(1, 0.7, 0.24)))
+	mat.set_shader_parameter("move_color", cfg.color("overlay.move_color", Color(1, 0.7, 0.24)))
 	mat.set_shader_parameter(
-		"exposed_colour", cfg.colour("overlay.exposed_colour", Color(1, 0.33, 0.21))
+		"move_far_color", cfg.color("overlay.move_far_color", Color(0.69, 0.46, 0.23))
 	)
 	mat.set_shader_parameter(
-		"hull_down_colour", cfg.colour("overlay.hull_down_colour", Color(0.37, 0.84, 0.41))
+		"exposed_color", cfg.color("overlay.exposed_color", Color(1, 0.33, 0.21))
 	)
-	mat.set_shader_parameter("hover_colour", cfg.colour("overlay.hover_colour", Color(1, 1, 1)))
 	mat.set_shader_parameter(
-		"path_colour", cfg.colour("overlay.path_colour", Color(1, 0.94, 0.82))
+		"hull_down_color", cfg.color("overlay.hull_down_color", Color(0.37, 0.84, 0.41))
+	)
+	mat.set_shader_parameter("hover_color", cfg.color("overlay.hover_color", Color(1, 1, 1)))
+	mat.set_shader_parameter(
+		"path_color", cfg.color("overlay.path_color", Color(1, 0.94, 0.82))
+	)
+
+	mat.set_shader_parameter(
+		"overwatch_color", cfg.color("overlay.overwatch_color", Color(1, 0.54, 0.30))
+	)
+	mat.set_shader_parameter(
+		"overwatch_fill_strength", cfg.f("overlay.overwatch_fill_strength", 0.16)
+	)
+	mat.set_shader_parameter(
+		"overwatch_max_overlaps", float(cfg.i("overlay.overwatch_max_overlaps", 3))
 	)
 
 
@@ -131,8 +144,8 @@ func extent_m() -> float:
 	return float(md.size) * md.tile_m
 
 
-## World position of a tile's centre, on its surface.
-func tile_centre(tile: int) -> Vector3:
+## World position of a tile's center, on its surface.
+func tile_center(tile: int) -> Vector3:
 	return Vector3(
 		(float(md.tx(tile)) + 0.5) * md.tile_m,
 		float(md.level[tile]) * md.quant,

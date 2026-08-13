@@ -159,12 +159,12 @@ func test_height_field_helpers() -> void:
 	assert_false(f.in_bounds(4, 2), "x == w is out of bounds")
 	assert_false(f.in_bounds(-1, 0), "negative x is out of bounds")
 
-	# Bilinear sample must interpolate, not snap. Between (2,1)=5 and its zero neighbours the
+	# Bilinear sample must interpolate, not snap. Between (2,1)=5 and its zero neighbors the
 	# midpoint is a quarter of the way up.
-	assert_almost_eq(f.sample(2.0, 1.0), 5.0, 0.0001, "sample on the cell centre")
+	assert_almost_eq(f.sample(2.0, 1.0), 5.0, 0.0001, "sample on the cell center")
 	assert_almost_eq(f.sample(2.5, 1.0), 2.5, 0.0001, "sample halfway to the next cell")
 
-	assert_eq(f.max_gradient(), 5.0, "max gradient is the biggest neighbour difference")
+	assert_eq(f.max_gradient(), 5.0, "max gradient is the biggest neighbor difference")
 
 
 func test_normalize_to_is_exact() -> void:

@@ -3,7 +3,7 @@ extends RefCounted
 
 ## The continuous heightfield that stages 4.2 through 4.5 pass between themselves.
 ##
-## Heights are metres in a flat PackedFloat32Array indexed y * w + x. At the shipping size — 800
+## Heights are meters in a flat PackedFloat32Array indexed y * w + x. At the shipping size — 800
 ## square at 2.5 m — that is 640,000 cells and 2.56 MB, contiguous, with the cheapest indexed read
 ## GDScript offers. An Array[Array] of the same data would be roughly 15 MB behind two levels of
 ## indirection, and the erosion stage alone performs hundreds of millions of accesses.
@@ -100,7 +100,7 @@ func min_max() -> Vector2:
 	return Vector2(lo, hi)
 
 
-## Steepest tile-to-tile height difference anywhere on the field, in metres. Used by the thermal
+## Steepest tile-to-tile height difference anywhere on the field, in meters. Used by the thermal
 ## erosion acceptance check.
 func max_gradient() -> float:
 	var worst: float = 0.0
@@ -116,7 +116,7 @@ func max_gradient() -> float:
 	return worst
 
 
-## Steepest slope (rise over run, dimensionless) to any of the eight neighbours. This is what the
+## Steepest slope (rise over run, dimensionless) to any of the eight neighbors. This is what the
 ## angle of repose is actually expressed against — max_gradient() reports a height difference,
 ## which is only comparable between fields of the same cell size.
 func max_slope() -> float:
@@ -138,7 +138,7 @@ func max_slope() -> float:
 	return worst
 
 
-## Rescale so the field spans exactly `target` metres from lowest point to highest, keeping the
+## Rescale so the field spans exactly `target` meters from lowest point to highest, keeping the
 ## lowest point at `floor_m`.
 func normalize_to(target: float, floor_m: float) -> void:
 	var mm: Vector2 = min_max()
@@ -155,7 +155,7 @@ func normalize_to(target: float, floor_m: float) -> void:
 # reads these; they exist so a human can tell whether the terrain is right.
 
 
-## Raw greyscale, normalized across the field's own range.
+## Raw grayscale, normalized across the field's own range.
 func to_image() -> Image:
 	var mm: Vector2 = min_max()
 	var span: float = maxf(mm.y - mm.x, 1e-6)
@@ -168,7 +168,7 @@ func to_image() -> Image:
 
 ## Hillshaded relief with an elevation ramp.
 ##
-## This is the view that actually answers 4.2's acceptance check. Flat greyscale hides ridge
+## This is the view that actually answers 4.2's acceptance check. Flat grayscale hides ridge
 ## structure — a directional ridge system and a field of isotropic lumps look much the same in it.
 ## Under a low sun they do not.
 func to_shaded_image(sun_azimuth_deg: float = 315.0, sun_altitude_deg: float = 32.0) -> Image:

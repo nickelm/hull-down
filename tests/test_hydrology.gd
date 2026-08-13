@@ -51,7 +51,7 @@ func test_every_interior_cell_drains_after_filling() -> void:
 					break
 			if not has_lower:
 				stuck += 1
-	assert_eq(stuck, 0, "%d interior cells have no downhill neighbour after depression filling" % stuck)
+	assert_eq(stuck, 0, "%d interior cells have no downhill neighbor after depression filling" % stuck)
 
 
 ## Filling raises ground and never lowers it. A fill that cut into terrain would be quietly
@@ -72,9 +72,9 @@ func test_filling_only_raises_ground() -> void:
 ##
 ## It is not an exact fixed point, and asserting one would be wrong. The epsilon that removes flats
 ## also changes heights, which changes the order cells are visited on the next run, so a cell can
-## be reached from a marginally higher neighbour the second time and gain another epsilon. What
+## be reached from a marginally higher neighbor the second time and gain another epsilon. What
 ## matters is that the correction is on the order of the epsilon itself rather than the terrain —
-## if a second pass moved metres, the first one did not actually resolve the depressions.
+## if a second pass moved meters, the first one did not actually resolve the depressions.
 func test_a_second_fill_moves_nothing_material() -> void:
 	var f: HeightField = _terrain(4242)
 	Hydrology.fill_depressions(f, cfg)
@@ -231,7 +231,7 @@ func test_carving_does_not_cut_cliffs_into_the_valley_walls() -> void:
 
 	Hydrology.run(f, cfg, 12345)
 
-	# A channel may legitimately incise up to its full depth against an uncut neighbour; anything
+	# A channel may legitimately incise up to its full depth against an uncut neighbor; anything
 	# beyond that is the carve damaging terrain it should not have touched.
 	assert_le(f.max_gradient(), before_step + max_depth + 0.5,
 		"steepest step went from %.2f m to %.2f m, more than the %.1f m carve depth explains"
@@ -264,7 +264,7 @@ func test_at_least_the_required_number_of_fords() -> void:
 			"seed %d produced %d fords, needs %d" % [master_seed, r.ford_count, required])
 
 
-## A ford that is still five metres deep is a marker, not a crossing.
+## A ford that is still five meters deep is a marker, not a crossing.
 func test_fords_are_actually_shallow() -> void:
 	var out: Array = _run(12345)
 	var r: Hydrology.Result = out[1]

@@ -14,7 +14,7 @@ extends RefCounted
 ##   breaks determinism the moment anything about iteration changes. This costs one extra
 ##   PackedFloat32Array and buys order independence outright.
 ## - **Mass is conserved exactly.** Every cell subtracts an amount and distributes exactly that
-##   amount to its downhill neighbours. Nothing is clamped away, so the sum over the field is
+##   amount to its downhill neighbors. Nothing is clamped away, so the sum over the field is
 ##   invariant and can be asserted rather than approximated.
 ##
 ## Border cells shed inward only. Material never leaves the map here — the edge falloff from 4.2
@@ -38,7 +38,7 @@ static func run(field: HeightField, cfg: Config, progress: Callable = Callable()
 	var n: int = w * h
 	var tan_repose: float = tan(deg_to_rad(repose_deg))
 
-	# The maximum height difference a step may hold, per direction. Diagonal neighbours are further
+	# The maximum height difference a step may hold, per direction. Diagonal neighbors are further
 	# apart, so they are allowed a proportionally larger drop for the same slope.
 	var cap_ortho: float = tan_repose * field.cell_m
 	var cap_diag: float = tan_repose * field.cell_m * sqrt(2.0)
@@ -50,7 +50,7 @@ static func run(field: HeightField, cfg: Config, progress: Callable = Callable()
 	var D := PackedFloat32Array()
 	D.resize(n)
 
-	# Neighbour offsets in the same order as Grid's direction tables, with the matching cap.
+	# Neighbor offsets in the same order as Grid's direction tables, with the matching cap.
 	var off := PackedInt32Array([-w, -w + 1, 1, w + 1, w, w - 1, -1, -w - 1])
 	var cap := PackedFloat32Array([
 		cap_ortho, cap_diag, cap_ortho, cap_diag, cap_ortho, cap_diag, cap_ortho, cap_diag
@@ -66,8 +66,8 @@ static func run(field: HeightField, cfg: Config, progress: Callable = Callable()
 	# Active list. A full sweep costs O(n) whether or not anything is still out of repose, and most
 	# of the field settles within a handful of passes — so after the first sweep only cells that
 	# could have changed status are revisited. Enqueueing the 5x5 block around a cell that moved is
-	# the conservative choice: the cell and its eight neighbours all changed height, so their
-	# neighbours' slopes all changed too.
+	# the conservative choice: the cell and its eight neighbors all changed height, so their
+	# neighbors' slopes all changed too.
 	var active := PackedInt32Array()
 	active.resize(n)
 	for i: int in n:
@@ -92,7 +92,7 @@ static func run(field: HeightField, cfg: Config, progress: Callable = Callable()
 			var total: float = 0.0
 			var worst: float = 0.0
 			for d: int in 8:
-				# Skip neighbours that would fall off the edge. Done with explicit edge flags
+				# Skip neighbors that would fall off the edge. Done with explicit edge flags
 				# rather than an in_bounds() call: this is the innermost loop in the stage.
 				exc[d] = 0.0
 				if y_top and (d == 0 or d == 1 or d == 7):
@@ -115,8 +115,8 @@ static func run(field: HeightField, cfg: Config, progress: Callable = Callable()
 				continue
 
 			# Shed a fraction of the single worst violation, split between the offending
-			# neighbours in proportion to how far each is over. Moving the worst rather than the
-			# total keeps a cell with eight mildly-steep neighbours from emptying itself in one
+			# neighbors in proportion to how far each is over. Moving the worst rather than the
+			# total keeps a cell with eight mildly-steep neighbors from emptying itself in one
 			# pass; halving it means an isolated pair lands exactly on the limit instead of
 			# overshooting and oscillating.
 			var amount: float = worst * 0.5 * relax

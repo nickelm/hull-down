@@ -94,17 +94,29 @@ static func generate(
 	TerrainTyper.assign(md, cfg, master_seed)
 
 	ConnectivityRepair.place_zones(md, cfg, master_seed)
-	ConnectivityRepair.place_objectives(md, cfg, master_seed)
+
+	# Village sites are chosen before a single road is routed, because the road network is a spanning
+	# tree over them and the map edges — people settle on good ground and then build roads between
+	# the places they settled, not the other way round. See docs/decisions/0019.
+	var sites: PackedInt32Array = SettlementPlacer.choose_sites(md, cfg, master_seed)
+	out_stats["village_sites"] = sites
 
 	# Roads before the connectivity check, not after. Cut and fill reshapes the ground and bridges
 	# make rivers crossable, so a road can be the thing that connects two halves of a map — running
 	# the check first would carve an earthwork the road was about to make unnecessary.
-	var roads: Array = RoadBuilder.build(md, cfg, master_seed)
+	var roads: Array = RoadBuilder.build(md, cfg, master_seed, sites)
 	out_stats["roads"] = roads
-	out_stats["villages"] = SettlementPlacer.place(md, roads, cfg, master_seed)
-	# A village flattens its footprint and the road runs through the middle of it, so the road's
-	# gradient has to be re-established afterwards.
+
+	# Stamped only now. A village flattens its footprint to a median height and the road runs
+	# straight through the middle of it, so the stamp has to follow the earthworks and the road's
+	# gradient has to be re-established afterwards. Only the *choosing* moved earlier.
+	out_stats["villages"] = SettlementPlacer.stamp_all(md, cfg, sites)
 	RoadBuilder.resmooth(md, cfg, roads)
+
+	# Objectives are placed on the generator's features — villages, bridges, crests (2e-iii) — so
+	# they cannot be chosen until the features exist. Still before the repair pass, which needs
+	# them as its anchors: every deployment zone must be able to reach every objective.
+	ConnectivityRepair.place_objectives(md, cfg, master_seed)
 
 	out_stats["connectivity"] = ConnectivityRepair.repair(md, cfg)
 	if not bool(out_stats["connectivity"]["connected"]):

@@ -18,7 +18,7 @@ func _limit() -> float:
 
 
 ## The sweep stops shedding from a cell once its total excess drops below converge_slack_m, so a
-## settled field may sit that many metres above the cap on a single edge. Expressed as a slope that
+## settled field may sit that many meters above the cap on a single edge. Expressed as a slope that
 ## is slack / cell_m. Deriving the tolerance rather than picking a number keeps the test honest if
 ## either the slack or the cell size changes.
 func _tolerance(cell: float) -> float:
@@ -59,7 +59,7 @@ func test_no_slope_exceeds_the_angle_of_repose() -> void:
 			"seed %d was not steep enough to exercise the stage at all" % master_seed)
 
 
-## Thermal erosion only moves material between neighbours; nothing leaves the map and nothing is
+## Thermal erosion only moves material between neighbors; nothing leaves the map and nothing is
 ## clamped away. Unlike the hydraulic stage, where droplets can walk off the edge, this one has no
 ## excuse for any drift at all.
 func test_mass_is_conserved_exactly() -> void:
@@ -106,12 +106,12 @@ func test_running_twice_changes_nothing() -> void:
 	assert_eq(diffs, 0, "a second run moved material in %d cells" % diffs)
 
 
-## The behaviour in isolation: a single tall column must collapse into a talus cone standing at
+## The behavior in isolation: a single tall column must collapse into a talus cone standing at
 ## the angle of repose, not stay a spike and not flatten completely.
 func test_a_spike_collapses_into_a_talus_cone() -> void:
 	var f := HeightField.create(41, 41, 5.0)
-	var centre: int = f.idx(20, 20)
-	f.data[centre] = 200.0
+	var center: int = f.idx(20, 20)
+	f.data[center] = 200.0
 
 	var before_mass: float = f.total_mass()
 	var stats: Dictionary = ThermalErosion.run(f, cfg)
@@ -122,9 +122,9 @@ func test_a_spike_collapses_into_a_talus_cone() -> void:
 	assert_almost_eq(f.total_mass(), before_mass, before_mass * 0.0001,
 		"the collapse did not conserve mass")
 
-	# Still a hill: the centre must remain the high point, and material must have spread outward.
-	assert_gt(f.data[centre], 0.0, "the pile flattened to nothing")
-	assert_lt(f.data[centre], 200.0, "the spike did not collapse at all")
+	# Still a hill: the center must remain the high point, and material must have spread outward.
+	assert_gt(f.data[center], 0.0, "the pile flattened to nothing")
+	assert_lt(f.data[center], 200.0, "the spike did not collapse at all")
 	assert_gt(f.at(20, 18), 0.0, "no material reached two cells out")
 
 	# A cone, not a cylinder: height must fall off monotonically away from the peak.

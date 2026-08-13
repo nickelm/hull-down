@@ -30,7 +30,7 @@ static func pick_ray(md: MapData, origin: Vector3, dir: Vector3) -> int:
 		t = (top - origin.y) / dir.y
 
 	# Step in half-tiles. Finer than a tile so the first tile is never skipped on a shallow ray,
-	# coarse enough that a two-kilometre ray is a few hundred samples.
+	# coarse enough that a two-kilometer ray is a few hundred samples.
 	var step: float = md.tile_m * 0.5
 	var max_t: float = t + extent * 3.0
 

@@ -105,7 +105,7 @@ func test_top_faces_sit_at_the_tile_height() -> void:
 			clampi(int(a.x / md.tile_m), 0, md.size - 1),
 			clampi(int(a.z / md.tile_m), 0, md.size - 1)
 		)
-		# The corner may belong to the neighbouring tile's coordinate, so allow either level.
+		# The corner may belong to the neighboring tile's coordinate, so allow either level.
 		assert_true(
 			absf(a.y - md.height_m(tile)) < 0.001 or a.y == a.y,
 			"top face height does not match any tile"
@@ -190,17 +190,17 @@ func test_a_flat_map_has_no_internal_walls() -> void:
 	assert_eq(side, border * 2, "a flat map should have walls only at its border")
 
 
-func test_vertex_colours_are_present_and_not_white() -> void:
+func test_vertex_colors_are_present_and_not_white() -> void:
 	var md: MapData = _stepped()
 	var mesh: ArrayMesh = TerrainMeshBuilder.build_chunk(md, cfg, palette, 0, 0)
 	assert_true((mesh.surface_get_format(0) & Mesh.ARRAY_FORMAT_COLOR) != 0,
-		"the mesh carries no vertex colour channel")
+		"the mesh carries no vertex color channel")
 
 	var cols: PackedColorArray = mesh.surface_get_arrays(0)[Mesh.ARRAY_COLOR]
 	assert_eq(cols.size(), mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX].size(),
-		"colour and vertex counts differ")
+		"color and vertex counts differ")
 
-	# Uncoloured geometry renders white; that is what a missing colour array looks like on screen.
+	# Uncolored geometry renders white; that is what a missing color array looks like on screen.
 	var white: int = 0
 	for k: int in cols.size():
 		if cols[k].r > 0.99 and cols[k].g > 0.99 and cols[k].b > 0.99:
@@ -208,9 +208,9 @@ func test_vertex_colours_are_present_and_not_white() -> void:
 	assert_eq(white, 0, "%d vertices are pure white — the palette is not reaching the mesh" % white)
 
 
-## Escarpment walls are given their own colour so a player reads impassable edges straight off the
+## Escarpment walls are given their own color so a player reads impassable edges straight off the
 ## terrain, with no overlay and no legend. That is most of what makes the fly-over legible.
-func test_escarpment_walls_use_the_cliff_colour() -> void:
+func test_escarpment_walls_use_the_cliff_color() -> void:
 	var md: MapData = _stepped()
 	var mesh: ArrayMesh = TerrainMeshBuilder.build_chunk(md, cfg, palette, 0, 0)
 	var arrays: Array = mesh.surface_get_arrays(0)
@@ -226,10 +226,10 @@ func test_escarpment_walls_use_the_cliff_colour() -> void:
 		if absf(c.r - palette.cliff.r) < 0.02 and absf(c.g - palette.cliff.g) < 0.02:
 			cliff_like += 1
 	assert_gt(float(cliff_like), 0.0,
-		"a six-quantum step produced no cliff-coloured wall")
+		"a six-quantum step produced no cliff-colored wall")
 
 
-func test_gentle_steps_do_not_use_the_cliff_colour() -> void:
+func test_gentle_steps_do_not_use_the_cliff_color() -> void:
 	var md := MapData.create(8)
 	md.move_cost.fill(10)
 	md.terrain.fill(TerrainTyper.Type.OPEN)
@@ -244,7 +244,7 @@ func test_gentle_steps_do_not_use_the_cliff_colour() -> void:
 	var n: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
 	var cols: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
 
-	# Interior walls only. The border skirt is cliff-coloured on purpose — it is the edge of the
+	# Interior walls only. The border skirt is cliff-colored on purpose — it is the edge of the
 	# world, not a terrain feature.
 	var step_x: float = 4.0 * md.tile_m
 	var checked: int = 0
@@ -366,12 +366,41 @@ func test_overlay_channels_are_independent() -> void:
 	var o: OverlayLayer = OverlayLayer.create(4)
 	o.set_tile(5, OverlayLayer.R, 200)
 	o.set_tile(5, OverlayLayer.B, 90)
+	o.set_tile(5, OverlayLayer.A, 2)
 	o.clear_channel(OverlayLayer.R)
 	o.upload()
 
 	var px: Color = o.image.get_pixel(5 % 4, 5 / 4)
 	assert_eq(px.r8, 0, "clearing the movement channel did not clear it")
 	assert_eq(px.b8, 90, "clearing the movement channel also cleared the highlight")
+	assert_eq(px.a8, 2, "clearing the movement channel also cleared the overwatch arcs")
+
+
+## The overwatch channel carries a **count** rather than an enumerated state — docs/decisions/0036 —
+## so what has to survive the round trip is small integers, exactly, rather than the three bands every
+## other channel is decoded into. The shader multiplies by 255 to get the number back, and a value
+## that arrived off by one would read as a different number of tanks covering the ground.
+func test_the_overwatch_channel_carries_exact_small_counts() -> void:
+	var o: OverlayLayer = OverlayLayer.create(8)
+	var counts := PackedByteArray()
+	counts.resize(64)
+	counts[3] = 1
+	counts[4] = 2
+	counts[5] = 3
+
+	o.set_channel(OverlayLayer.A, counts)
+	o.upload()
+
+	for tile: int in [3, 4, 5]:
+		assert_eq(o.image.get_pixel(tile % 8, tile / 8).a8, counts[tile],
+			"arc count on tile %d did not survive the round trip" % tile)
+	assert_eq(o.image.get_pixel(0, 0).a8, 0, "an uncovered tile reported an arc")
+
+	# Fully opaque nowhere by default matters: the texture is data, and a tile with no arcs must read
+	# as zero rather than as the 255 an RGBA image would otherwise be initialized to.
+	var fresh: OverlayLayer = OverlayLayer.create(4)
+	fresh.upload()
+	assert_eq(fresh.image.get_pixel(2, 2).a8, 0, "a fresh overlay starts opaque")
 
 
 ## A tile's overlay texel must be the tile the shader will sample there. The shader maps world XZ
@@ -453,15 +482,15 @@ func test_the_ribbon_meets_exactly_at_a_shared_edge() -> void:
 	# The shared edge between (4,3) and (4,4) is at z = 4 * tile_m, x from 4 to 5 tiles.
 	var seam_z: float = 4.0 * md.tile_m
 	var half_w: float = cfg.f("roads.width_m", 4.5) * 0.5
-	var centre_x: float = 4.5 * md.tile_m
+	var center_x: float = 4.5 * md.tile_m
 	var on_seam: int = 0
 	for v: Vector3 in verts:
 		if absf(v.z - seam_z) > 0.001:
 			continue
 		on_seam += 1
-		var offset: float = absf(v.x - centre_x)
+		var offset: float = absf(v.x - center_x)
 		assert_almost_eq(offset, half_w, 0.01,
-			"a seam vertex sits at %.3f from the centreline, not the half width" % offset)
+			"a seam vertex sits at %.3f from the centerline, not the half width" % offset)
 	assert_gt(float(on_seam), 3.0, "no vertices landed on the shared edge at all")
 
 

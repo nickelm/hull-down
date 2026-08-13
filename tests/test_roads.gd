@@ -40,22 +40,134 @@ func test_a_road_crosses_the_map_end_to_end() -> void:
 	var roads: Array = _roads(12345)
 	assert_gt(float(roads.size()), 0.0, "no roads were built")
 
-	var crossed: bool = false
-	for k: int in roads.size():
-		var road: RoadBuilder.Road = roads[k]
-		if road.length() < 2:
+	var reached: PackedByteArray = _road_network_from_border(md)
+
+	# The claim is about the **network**, not about any one road. Now the routes are a spanning tree
+	# over portals and villages, an individual road is a portal-to-village hop and may be quite short,
+	# so "one road touches both borders" was accidentally still true and no longer means anything.
+	# What must hold is that you can drive from one edge of the map to the other without ever leaving
+	# the tarmac.
+	var low: bool = false
+	var high: bool = false
+	for k: int in md.n:
+		if reached[k] == 0:
 			continue
-		var a: int = road.tiles[0]
-		var b: int = road.tiles[road.length() - 1]
-		# End to end means touching opposite borders, not merely being long.
-		var touches_low: bool = md.tx(a) == 0 or md.ty(a) == 0
-		var touches_high: bool = md.tx(b) == md.size - 1 or md.ty(b) == md.size - 1
-		if touches_low and touches_high:
-			crossed = true
-			assert_ge(float(road.length()), float(md.size),
-				"a road spanning the map should be at least %d tiles, got %d"
-					% [md.size, road.length()])
-	assert_true(crossed, "no road runs from one edge of the map to the other")
+		if md.tx(k) == 0 or md.ty(k) == 0:
+			low = true
+		if md.tx(k) == md.size - 1 or md.ty(k) == md.size - 1:
+			high = true
+	assert_true(low and high,
+		"the road network does not connect one border of the map to the other")
+
+
+## Flood fill over `road_links` from every road tile on the map border, following links only. This
+## is "where can you get to along the roads", which is the question the network exists to answer.
+func _road_network_from_border(md: MapData) -> PackedByteArray:
+	var seen := PackedByteArray()
+	seen.resize(md.n)
+	var queue := PackedInt32Array()
+
+	for i: int in md.n:
+		if not md.has_road(i):
+			continue
+		if md.tx(i) == 0 or md.ty(i) == 0 or md.tx(i) == md.size - 1 or md.ty(i) == md.size - 1:
+			if seen[i] == 0:
+				seen[i] = 1
+				queue.append(i)
+
+	var head: int = 0
+	while head < queue.size():
+		var c: int = queue[head]
+		head += 1
+		for d: int in 8:
+			if not md.has_road_link(c, d):
+				continue
+			var nb: int = md.neighbor(c, d)
+			if nb < 0 or seen[nb] != 0:
+				continue
+			seen[nb] = 1
+			queue.append(nb)
+	return seen
+
+
+## Every village is on the network by construction — the villages are half of what the tree spans.
+## If one is ever stranded, the tree was built over the wrong node set.
+func test_every_village_is_on_the_road_network() -> void:
+	for master_seed: int in [12345, 777]:
+		var md2: MapData = _generate(master_seed)
+		if md2 == null:
+			continue
+		var reached2: PackedByteArray = _road_network_from_border(md2)
+
+		var villages: int = 0
+		var on_network: int = 0
+		for i: int in md2.n:
+			if int(md2.terrain[i]) != TerrainTyper.Type.VILLAGE:
+				continue
+			villages += 1
+			if reached2[i] != 0:
+				on_network += 1
+				continue
+			# A tile in the middle of the footprint is legitimately off the tarmac; it counts as on
+			# the network if the road runs past it.
+			for d: int in 8:
+				var nb: int = md2.neighbor(i, d)
+				if nb >= 0 and reached2[nb] != 0:
+					on_network += 1
+					break
+
+		assert_gt(float(villages), 0.0, "seed %d produced no villages" % master_seed)
+		assert_gt(float(on_network), 0.0,
+			"seed %d: not one village tile is on the road network" % master_seed)
+
+
+## The network is a tree plus the configured redundancy, so it must contain a loop. A pure tree
+## gives every pair of places exactly one route, which is a road network with no alternatives and
+## nothing to outflank.
+func test_the_network_carries_a_loop() -> void:
+	var md3: MapData = _generate(12345)
+	if md3 == null:
+		return
+
+	# Independent cycles = edges - nodes + components over the road graph. Counted on the link mask
+	# rather than on the route list, because two routes sharing a trunk are one edge here.
+	var nodes: int = 0
+	var half_edges: int = 0
+	for i: int in md3.n:
+		if not md3.has_road(i):
+			continue
+		nodes += 1
+		for d: int in 8:
+			if md3.has_road_link(i, d) and md3.neighbor(i, d) >= 0:
+				half_edges += 1
+	var edge_count: int = half_edges / 2
+
+	var seen3 := PackedByteArray()
+	seen3.resize(md3.n)
+	var components: int = 0
+	var stack := PackedInt32Array()
+	for s: int in md3.n:
+		if not md3.has_road(s) or seen3[s] != 0:
+			continue
+		components += 1
+		seen3[s] = 1
+		stack.append(s)
+		while not stack.is_empty():
+			var c: int = stack[stack.size() - 1]
+			stack.resize(stack.size() - 1)
+			for d2: int in 8:
+				if not md3.has_road_link(c, d2):
+					continue
+				var nb: int = md3.neighbor(c, d2)
+				if nb < 0 or seen3[nb] != 0:
+					continue
+				seen3[nb] = 1
+				stack.append(nb)
+
+	var cycles: int = edge_count - nodes + components
+	assert_ge(float(cycles), 1.0,
+		"the road network has no loop in it: %d edges, %d nodes, %d components"
+			% [edge_count, nodes, components])
 
 
 func test_road_gradient_stays_under_the_limit() -> void:
@@ -141,7 +253,7 @@ func test_road_links_are_symmetric() -> void:
 		for d: int in 8:
 			if not md.has_road_link(i, d):
 				continue
-			var nb: int = md.neighbour(i, d)
+			var nb: int = md.neighbor(i, d)
 			if nb < 0:
 				continue  # An endpoint running off the map has nothing to link back.
 			assert_true(md.has_road_link(nb, Grid.opposite(d)),
@@ -188,17 +300,48 @@ func test_a_road_keeps_the_terrain_underneath() -> void:
 			"tile %d was typed ROAD; roads live in road_links now" % i)
 
 
-func test_roads_are_faster_than_the_ground_around_them() -> void:
+## The discount belongs to the road, not to the tile the road happens to cross.
+##
+## This asserted `move_cost[i] == road_cost` on every road tile, which is the tile-level version of
+## the rule — and the tile-level version pays a tank crossing the road at right angles, a vehicle
+## that spent no time on the road whatever. The rule now lives on the edge, so that is what is
+## measured: a step *along* a road link is cheap, a step *across* one is not.
+func test_roads_discount_the_edge_and_not_the_tile() -> void:
 	var md: MapData = _generate(12345)
 	if md == null:
 		return
+	var graph: TraversalGraph = TraversalGraph.build(md, cfg)
 	var road_cost: int = int(round(cfg.terrain_move_cost[TerrainTyper.Type.ROAD] * 10.0))
 	var open_cost: int = int(round(cfg.terrain_move_cost[TerrainTyper.Type.OPEN] * 10.0))
 	assert_lt(float(road_cost), float(open_cost), "road surface is not cheaper than open ground")
 
+	var along: int = 0
+	var across: int = 0
 	for i: int in md.n:
-		if md.has_road(i):
-			assert_eq(md.move_cost[i], road_cost, "road tile %d did not take the road cost" % i)
+		if not md.has_road(i):
+			continue
+		for d: int in 8:
+			var ec: int = graph.edge_cost[i * 8 + d]
+			if ec < 0:
+				continue
+			# Rough going adds a flat surcharge on top of whichever multiplier applies, which would
+			# swamp the comparison this test is making. Measure the normal edges.
+			if md.transition(i, d) != MapData.Trans.NORMAL:
+				continue
+			var base: int = 14 if Grid.IS_DIAG[d] == 1 else 10
+			if md.has_road_link(i, d):
+				assert_eq(ec, base * road_cost / 10,
+					"a step along the road at tile %d was not priced as road surface" % i)
+				along += 1
+			else:
+				# Leaving the road: priced by the ground being driven onto, whatever that is.
+				var nb: int = graph.edge_target[i * 8 + d]
+				assert_eq(ec, base * graph.tile_cost[nb] / 10,
+					"a step off the road at tile %d took the road discount" % i)
+				across += 1
+
+	assert_gt(float(along), 0.0, "no road links on the map to measure")
+	assert_gt(float(across), 0.0, "no off-road steps from a road tile to measure")
 
 
 # --- bridges and water -------------------------------------------------------------------------
@@ -292,7 +435,7 @@ func test_a_village_does_not_put_a_step_in_the_road() -> void:
 			var b: int = road.tiles[t]
 			var near_village: bool = false
 			for d: int in 8:
-				var nb: int = md.neighbour(b, d)
+				var nb: int = md.neighbor(b, d)
 				if nb >= 0 and md.terrain[nb] == TerrainTyper.Type.VILLAGE:
 					near_village = true
 					break

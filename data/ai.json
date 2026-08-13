@@ -1,0 +1,32 @@
+{
+  "_comment": "Everything the utility policy weighs, in one file — 2e-ii. Mounted by Config under the 'ai' section, so these read as cfg.f(\"ai.weights.hull_down\", ...) and a mistyped path lands in cfg.missing like any other. Scores are dimensionless utility; only their ratios matter. One point is roughly 'one tile of progress toward the objective' (weights.progress_per_tile is the yardstick the others are priced against).",
+
+  "_weights_note": "Positive is attractive, negative is repellent — the sign is data, not code, so 'investigate sounds' versus 'avoid sounds' is a retune rather than a rewrite. hull_down/masked are per known enemy that cannot draw a clean bead on the tile; arc_threat is per known enemy whose turret is laid within the overwatch arc of it and can see it, which is the only overwatch fact a side can honestly know (the enemy's watch ORDER is hidden, its turret is not — docs/decisions/0036 withholds the wedge, not the gun).",
+  "weights": {
+    "progress_per_tile": 1.0,
+    "hull_down": 2.5,
+    "masked": 1.5,
+    "concealment": 4.0,
+    "arc_threat": -6.0,
+    "sound_caution": -2.0,
+    "ghost_caution": -1.5,
+    "shot_value": 8.0,
+    "mp_thrift": -1.0,
+    "stationary_bonus": 1.0,
+    "kill": 60.0,
+    "shred": 10.0,
+    "fire_threshold": 6.0
+  },
+
+  "_candidates_note": "The hard cap 2e-ii asks for: a 30-unit turn has to resolve under a second, and the cap is what makes that a promise rather than a hope. Sampling is a deterministic stride over the reachable set in tile order — no draw, so the AI stream stays tie-break-only. contacts_considered bounds the LOS rays per candidate; the nearest few enemies dominate the danger anyway.",
+  "candidates": {
+    "max_per_unit": 24,
+    "contacts_considered": 4,
+    "min_hit_chance_counted": 0.25,
+    "max_shots_counted": 2,
+    "caution_radius_m": 250.0
+  },
+
+  "_tie_break_note": "Candidates within epsilon of the best score are a tie, resolved by one draw from Rng.Stream.AI — the stream's only use, as 2e-ii specifies. Epsilon well below one point of utility: ties are for genuinely interchangeable tiles, not a blur radius.",
+  "tie_break_epsilon": 0.25
+}

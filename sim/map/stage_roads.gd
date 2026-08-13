@@ -11,7 +11,7 @@ extends RefCounted
 ## terrain, so it becomes the low-gradient route through country that has none. Where it crosses a
 ## ridge that would otherwise be an escarpment, the cutting it makes is the only way through, and
 ## nobody had to special-case "put a pass here". The tactical consequence follows for free: roads
-## are where armour can move fast, and therefore where it can be ambushed.
+## are where armor can move fast, and therefore where it can be ambushed.
 ##
 ## Representation is one segment per tile, an entry edge and an exit edge. Adjacent segments share
 ## their edge midpoints exactly, so the quadratic curve drawn through them is continuous by
@@ -28,15 +28,37 @@ class Road extends RefCounted:
 		return tiles.size()
 
 
-static func build(md: MapData, cfg: Config, master_seed: int) -> Array:
+## Build the road network: a spanning tree over the villages and the map-edge portals, plus a
+## redundant edge or two so the network has a loop in it rather than being a pure hierarchy.
+##
+## Two independent edge-to-edge paths was the old shape, and it produced two roads that crossed by
+## luck. A tree over real destinations gives a network that goes somewhere — every village is on it,
+## every edge of the map is reachable along it, and the junctions fall out where routes converge
+## rather than being the thing villages were placed at. See docs/decisions/0019.
+static func build(md: MapData, cfg: Config, master_seed: int, sites: PackedInt32Array) -> Array:
 	var rng: RandomNumberGenerator = Rng.substream(master_seed, Rng.Stream.TERRAIN, TAG)
-	var count: int = cfg.i("roads.count", 2)
+
+	var nodes: PackedInt32Array = _pick_portals(md, cfg, rng)
+	nodes.append_array(sites)
+	# Sorted, so the node numbering the tree is built over does not depend on the order portals and
+	# sites happened to be appended in.
+	nodes.sort()
+	if nodes.size() < 2:
+		return []
+
+	var edges: Array = _tree_edges(md, cfg, nodes)
 	var roads: Array = []
 
-	var endpoints: Array = _pick_endpoints(md, cfg, rng, count)
-	for k: int in endpoints.size():
-		var pair: Vector2i = endpoints[k]
-		var path: PackedInt32Array = route(md, cfg, pair.x, pair.y)
+	# Stamped in ascending cost order, and **re-routed** as each one is laid rather than reusing the
+	# path that decided the tree's shape. The reuse discount only exists once there is a road to
+	# reuse, so the cheap edges go down first and the later ones converge onto them. Routing once
+	# and using the answer twice would give a tree of correct shape made of roads that ignore each
+	# other.
+	for k: int in edges.size():
+		var pair: Vector3i = edges[k]
+		# z marks a bypass: routed at full price so it cuts its own line instead of retracing the
+		# tree it is supposed to short-circuit.
+		var path: PackedInt32Array = route(md, cfg, pair.x, pair.y, 1.0 if pair.z == 1 else -1.0)
 		if path.size() < 2:
 			continue
 
@@ -44,7 +66,7 @@ static func build(md: MapData, cfg: Config, master_seed: int) -> Array:
 		road.tiles = path
 		# Bridges are marked *before* the earthworks, not after. A deck has to sit at whatever
 		# height the smoothed road profile arrives at — setting it afterwards to the height of its
-		# neighbours puts a step in the middle of the road, which is how this first shipped a road
+		# neighbors puts a step in the middle of the road, which is how this first shipped a road
 		# with a 3 m pitch against a 1 m limit.
 		road.is_bridge = _mark_bridges(md, path)
 		cut_and_fill(md, cfg, path)
@@ -58,6 +80,153 @@ static func build(md: MapData, cfg: Config, master_seed: int) -> Array:
 		TerrainTyper.apply_terrain_attributes(md, cfg)
 
 	return roads
+
+
+## The minimum spanning tree over the node set, plus the configured number of redundant edges.
+##
+## Kruskal over a flat union-find. The candidate edges are packed into a `PackedInt64Array` and
+## sorted as integers rather than held in a Dictionary keyed by node pair: a Dictionary would put
+## the iteration order of the whole road network at the mercy of hash ordering, which is precisely
+## the determinism rule in CLAUDE.md and the one place in this batch where it could have been broken
+## without anything failing.
+static func _tree_edges(md: MapData, cfg: Config, nodes: PackedInt32Array) -> Array:
+	var extra: int = cfg.i("roads.redundant_edges", 1)
+	var n: int = nodes.size()
+
+	# All pairs, costed on the clean map. This decides the tree's *shape* only.
+	var candidates := PackedInt64Array()
+	for a: int in n:
+		for b: int in range(a + 1, n):
+			var path: PackedInt32Array = route(md, cfg, nodes[a], nodes[b])
+			if path.size() < 2:
+				continue
+			# Route length stands in for cost. Both are monotone in the same thing and the length is
+			# already to hand, which keeps this one search per pair rather than two.
+			var key: int = clampi(path.size(), 0, 0xFFFFF)
+			candidates.append((key << 24) | (a << 12) | b)
+	candidates.sort()
+
+	var parent := PackedInt32Array()
+	parent.resize(n)
+	for k: int in n:
+		parent[k] = k
+
+	var tree: Array = []
+	var rejected := PackedInt64Array()
+	# Tree adjacency as a flat n*n matrix of hop counts, filled in as edges are accepted.
+	var adj := PackedByteArray()
+	adj.resize(n * n)
+
+	for k2: int in candidates.size():
+		var packed: int = candidates[k2]
+		var a2: int = (packed >> 12) & 0xFFF
+		var b2: int = packed & 0xFFF
+		if _find(parent, a2) == _find(parent, b2):
+			rejected.append(packed)
+			continue
+		parent[_find(parent, a2)] = _find(parent, b2)
+		adj[a2 * n + b2] = 1
+		adj[b2 * n + a2] = 1
+		tree.append(Vector3i(nodes[a2], nodes[b2], 0))
+
+	# The redundant edges are the pairs furthest apart **along the tree**, not the cheapest pairs
+	# left over.
+	#
+	# Cheapest was the obvious choice and it is useless: the cheapest non-tree pair is almost always
+	# one already adjacent on the tree, so its route runs straight down the road that is already
+	# there — the reuse discount guarantees it — and the network gains a duplicate rather than a
+	# loop. Joining two places that are a long way round from each other is what a bypass is, and it
+	# is the only kind of extra edge that produces an alternative worth having.
+	var hops: PackedInt32Array = _tree_hops(adj, n)
+	var ranked := PackedInt64Array()
+	for k3: int in rejected.size():
+		var p2: int = rejected[k3]
+		var a3: int = (p2 >> 12) & 0xFFF
+		var b3: int = p2 & 0xFFF
+		var detour: int = hops[a3 * n + b3]
+		if detour < 2:
+			continue
+		# Descending by detour, then ascending by route length, in one integer sort.
+		ranked.append(((1000 - detour) << 44) | ((p2 >> 24) << 24) | (a3 << 12) | b3)
+	ranked.sort()
+
+	for k4: int in mini(extra, ranked.size()):
+		var p3: int = ranked[k4]
+		tree.append(Vector3i(nodes[(p3 >> 12) & 0xFFF], nodes[p3 & 0xFFF], 1))
+
+	return tree
+
+
+## All-pairs hop distance over the tree, by breadth-first search from each node. At most a dozen
+## nodes, so the quadratic shape costs nothing.
+static func _tree_hops(adj: PackedByteArray, n: int) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	out.resize(n * n)
+	out.fill(0)
+
+	var queue := PackedInt32Array()
+	queue.resize(n)
+	for s: int in n:
+		var dist := PackedInt32Array()
+		dist.resize(n)
+		dist.fill(-1)
+		dist[s] = 0
+		var head: int = 0
+		var tail: int = 0
+		queue[tail] = s
+		tail += 1
+		while head < tail:
+			var c: int = queue[head]
+			head += 1
+			for v: int in n:
+				if adj[c * n + v] == 0 or dist[v] >= 0:
+					continue
+				dist[v] = dist[c] + 1
+				queue[tail] = v
+				tail += 1
+		for v2: int in n:
+			out[s * n + v2] = maxi(dist[v2], 0)
+
+	return out
+
+
+static func _find(parent: PackedInt32Array, x: int) -> int:
+	var r: int = x
+	while parent[r] != r:
+		r = parent[r]
+	return r
+
+
+## Where the network leaves the map: one portal per edge, on the lowest drivable ground that edge
+## offers. Roads leave a map from its valleys, as they always did — but deterministically scanned
+## rather than sampled, because a portal that moves between runs moves the whole network.
+static func _pick_portals(md: MapData, cfg: Config, rng: RandomNumberGenerator) -> PackedInt32Array:
+	var want: int = clampi(cfg.i("roads.portal_count", 4), 1, 4)
+	var size: int = md.size
+	var margin: int = maxi(size / 10, 2)
+	var out := PackedInt32Array()
+
+	for side: int in want:
+		var best: int = -1
+		var best_score: int = 1 << 30
+		for k: int in range(margin, size - margin):
+			var tile: int = -1
+			match side:
+				0: tile = md.idx(k, 0)
+				1: tile = md.idx(size - 1, k)
+				2: tile = md.idx(k, size - 1)
+				_: tile = md.idx(0, k)
+			if not md.is_passable(tile):
+				continue
+			# The nudge keeps two equally low points on one edge from always resolving the same way.
+			var score: int = md.level[tile] * 4 + rng.randi_range(0, 3)
+			if score < best_score:
+				best_score = score
+				best = tile
+		if best >= 0:
+			out.append(best)
+
+	return out
 
 
 ## Restore every road's gradient after later stages have moved the ground under it.
@@ -89,57 +258,27 @@ static func resmooth(md: MapData, cfg: Config, roads: Array) -> int:
 	return max_passes
 
 
-## Pick pairs of edge tiles on opposite sides of the map, far enough apart to make a road that
-## actually crosses it rather than clipping a corner.
-static func _pick_endpoints(
-	md: MapData, cfg: Config, rng: RandomNumberGenerator, count: int
-) -> Array:
-	var size: int = md.size
-	var min_sep: float = cfg.f("roads.min_endpoint_separation_frac", 0.3) * float(size)
-	var out: Array = []
-
-	for k: int in count:
-		# Alternate the axis so two roads tend to cross rather than run parallel — a crossroads is
-		# where villages go.
-		var vertical: bool = (k % 2) == 0
-		var best: Vector2i = Vector2i(-1, -1)
-		var best_score: float = INF
-
-		for _attempt: int in 24:
-			var a: int
-			var b: int
-			if vertical:
-				a = md.idx(rng.randi_range(2, size - 3), 0)
-				b = md.idx(rng.randi_range(2, size - 3), size - 1)
-			else:
-				a = md.idx(0, rng.randi_range(2, size - 3))
-				b = md.idx(size - 1, rng.randi_range(2, size - 3))
-			if not md.is_passable(a) or not md.is_passable(b):
-				continue
-			var dx: float = float(md.tx(a) - md.tx(b))
-			var dy: float = float(md.ty(a) - md.ty(b))
-			if sqrt(dx * dx + dy * dy) < min_sep:
-				continue
-			# Prefer starting on low, flat ground — roads leave a map from its valleys.
-			var score: float = float(md.level[a] + md.level[b])
-			if score < best_score:
-				best_score = score
-				best = Vector2i(a, b)
-
-		if best.x >= 0:
-			out.append(best)
-
-	return out
-
-
 ## Route a road, four-connected, over a cost that prices slope steeply and water almost
 ## prohibitively — except at fords, which is what makes a road seek out a crossing.
-static func route(md: MapData, cfg: Config, from_tile: int, to_tile: int) -> PackedInt32Array:
+## `reuse_override` replaces `roads.reuse_discount` for this one route. A redundant edge passes 1.0,
+## meaning no discount at all: the discount exists to make tree edges converge onto shared trunks,
+## and for a bypass it is actively wrong. At 0.25 a road along existing tarmac costs a quarter of
+## open ground, so retracing the tree beats any direct line unless the detour is more than fourfold
+## — which on a spanning tree it essentially never is. The "redundant" edge then lays itself down on
+## top of the road that is already there and the network gains nothing. A bypass is built precisely
+## because the existing way round is long; it has to be allowed to cut its own line.
+static func route(
+	md: MapData, cfg: Config, from_tile: int, to_tile: int, reuse_override: float = -1.0
+) -> PackedInt32Array:
 	var base: float = cfg.f("roads.base_cost", 100.0)
 	var slope_k: float = cfg.f("roads.slope_k", 55.0)
 	var water_penalty: float = cfg.f("roads.water_penalty", 4000.0)
 	var ford_discount: float = cfg.f("roads.ford_discount", 0.06)
 	var terrain_k: float = cfg.f("roads.terrain_k", 30.0)
+
+	var reuse: float = clampf(
+		reuse_override if reuse_override > 0.0 else cfg.f("roads.reuse_discount", 0.25), 0.01, 1.0
+	)
 
 	var cost := func(_from: int, to: int, _d: int) -> int:
 		var dl: float = float(absi(md.level[to] - md.level[_from]))
@@ -159,11 +298,25 @@ static func route(md: MapData, cfg: Config, from_tile: int, to_tile: int) -> Pac
 		var mc: int = md.move_cost[to]
 		if mc > 0:
 			c += terrain_k * (float(mc) * 0.1 - 1.0)
-		return int(c)
 
-	# Admissible only if the heuristic never exceeds the true cost, and the cheapest possible edge
-	# is `base` on flat open ground.
-	return GridAStar.route_4(md, from_tile, to_tile, cost, base)
+		# Running along a road that is already there is much cheaper than making a new one, which is
+		# what turns a spanning tree into a network with trunks instead of a star of separate lanes.
+		#
+		# Note this discount did *not* exist before — it looked as though it did, because road tiles
+		# were baked cheap in `move_cost`, but `apply_terrain_attributes` runs once after the whole
+		# build loop, so no road ever saw another road's discount.
+		if md.has_road(to):
+			c *= reuse
+
+		# Floored at 1. IntHeap packs the key by shifting it left twenty bits, so a zero or negative
+		# edge cost corrupts the packing rather than merely being wrong.
+		return maxi(int(c), 1)
+
+	# The scale must be a true lower bound on any edge, and the reuse discount makes the cheapest
+	# possible edge `base * reuse` rather than `base`. Passing `base` here was correct until the
+	# discount existed and would silently overestimate afterwards, which returns routes that look
+	# optimal and are not.
+	return GridAStar.route_4(md, from_tile, to_tile, cost, base * reuse)
 
 
 ## Relax the height profile along the route until no step exceeds the road's gradient limit, then
@@ -207,7 +360,7 @@ static func cut_and_fill(md: MapData, cfg: Config, path: PackedInt32Array) -> vo
 	var size: int = md.size
 	var touched := PackedInt32Array()
 
-	# Consecutive path tiles are neighbours, so each one's corridor covers the one before it.
+	# Consecutive path tiles are neighbors, so each one's corridor covers the one before it.
 	# Blending the banks without excluding the road itself means every tile is overwritten by its
 	# successor's blend and the smoothed profile is never actually laid down — the road came out
 	# with 1.5 m steps against a 1.0 m limit. Mark the path, blend only the banks, then write the
@@ -336,7 +489,7 @@ static func _run_off_map(md: MapData, tile: int, inward_from: int) -> void:
 	# on it, which breaks the symmetry invariant the mesh builder relies on and draws a stub into
 	# open ground. A terminus in the middle of the map is a dead end, and a dead end is drawable.
 	var out: int = Grid.opposite(inward)
-	if md.neighbour(tile, out) >= 0:
+	if md.neighbor(tile, out) >= 0:
 		return
 	md.road_links[tile] = int(md.road_links[tile]) | (1 << out)
 

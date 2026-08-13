@@ -31,11 +31,12 @@ var _queue: DialQueue
 var _md: MapData
 var _cfg: Config
 
-var _base_ortho: int
-var _base_diag: int
+## The static graph. Built once and shared with the connectivity fill, the repair pass and the
+## chokepoint metric, so all four agree by construction rather than by test.
+var _graph: TraversalGraph
+
 var _turn_cost: int
 var _reverse_mult: float
-var _rough_extra: int
 var _min_terrain_cost: int
 var _max_cost: int
 var _edge_cost: PackedInt32Array
@@ -47,26 +48,21 @@ var last_states_expanded: int = 0
 var last_elapsed_usec: int = 0
 
 
-func _init(md: MapData, cfg: Config) -> void:
+func _init(md: MapData, cfg: Config, graph: TraversalGraph = null) -> void:
 	_md = md
 	_cfg = cfg
 
-	_base_ortho = cfg.i("movement.base_ortho", 10)
-	_base_diag = cfg.i("movement.base_diag", 14)
 	_turn_cost = cfg.i("movement.turn_cost_per_45", 3)
 	_reverse_mult = cfg.f("movement.reverse_mult", 1.6)
-	_rough_extra = cfg.i("movement.rough_extra_cost", 8)
 	_max_cost = cfg.i("movement.max_path_cost", 12000)
 
-	# The cheapest terrain on this map, for the heuristic. Taken from the map rather than from the
-	# data file so it is a true lower bound on what is actually there.
-	_min_terrain_cost = 10
-	for i: int in md.n:
-		var c: int = md.move_cost[i]
-		if c > 0 and c < _min_terrain_cost:
-			_min_terrain_cost = c
-
-	_build_edge_tables()
+	# Reuse the caller's graph where there is one. Building it is a fifth of a second, and the
+	# generator has already paid for exactly this table. The graph carries the movement class, so a
+	# pathfinder for wheeled vehicles is this same object handed a different graph.
+	_graph = graph if graph != null else TraversalGraph.build(md, cfg)
+	_edge_cost = _graph.edge_cost
+	_edge_target = _graph.edge_target
+	_min_terrain_cost = _graph.min_cost_x10
 
 	var states: int = md.n * 8
 	_g = PackedInt32Array()
@@ -77,6 +73,11 @@ func _init(md: MapData, cfg: Config) -> void:
 	_stamp.resize(states)
 	_stamp.fill(-1)
 	_queue = DialQueue.new(_max_cost, states * 2)
+
+
+## Which kind of vehicle this pathfinder answers for.
+func movement_class() -> int:
+	return _graph.mclass
 
 
 static func state_of(tile: int, facing: int) -> int:
@@ -91,58 +92,26 @@ static func facing_of(state: int) -> int:
 	return state & 7
 
 
-## Cost of entering `to` from `from` in direction `d`, or -1 if the move is illegal.
-func _step_cost(from_tile: int, to_tile: int, d: int) -> int:
-	var base: int = _base_diag if Grid.IS_DIAG[d] == 1 else _base_ortho
-	var cost: int = base * _md.move_cost[to_tile] / 10
-	if _md.transition(from_tile, d) == MapData.Trans.ROUGH:
-		cost += _rough_extra
-	return cost
-
-
-## Flatten "can I move there, and what does it cost" into one lookup per (tile, direction).
-##
-## The search asks that question about four edges for every state it expands, and answering it
-## live means `can_move` -> `neighbour` -> `transition` -> `neighbour` again, six function calls
-## deep, per edge. GDScript charges for every one of them, and at ten thousand states that call
-## chain was most of the overlay's frame budget on its own.
-##
-## Built once per map: 320,000 entries, about 1.3 MB, a fifth of a second. After that the inner
-## loop is an array read and a comparison.
-func _build_edge_tables() -> void:
-	var n: int = _md.n
-	_edge_cost = PackedInt32Array()
-	_edge_cost.resize(n * 8)
-	_edge_target = PackedInt32Array()
-	_edge_target.resize(n * 8)
-
-	for i: int in n:
-		var base_idx: int = i * 8
-		if not _md.is_passable(i):
-			for d: int in 8:
-				_edge_cost[base_idx + d] = -1
-				_edge_target[base_idx + d] = -1
-			continue
-		for d: int in 8:
-			if not _md.can_move(i, d):
-				_edge_cost[base_idx + d] = -1
-				_edge_target[base_idx + d] = -1
-				continue
-			var nb: int = _md.neighbour(i, d)
-			_edge_target[base_idx + d] = nb
-			_edge_cost[base_idx + d] = _step_cost(i, nb, d)
-
-
 ## Every tile reachable within `budget` movement points, as cost-to-reach per tile (-1 unreachable).
 ##
 ## This is the movement overlay, and it has to land inside a frame. It is only recomputed when the
 ## selection changes or a move finishes â€” never per frame â€” because even at 40 ms a per-frame cost
 ## would be the whole budget.
-func reachable(start_tile: int, start_facing: int, budget: int) -> PackedInt32Array:
+##
+## `blockers` is the dynamic overlay: one byte per tile, non-zero where something is standing that
+## this unit cannot drive through. It is deliberately not part of the graph — the graph is the
+## static map and is built once, while occupancy changes every time anything moves, and rebuilding
+## two megabytes of table for that would be absurd. An empty array means no obstructions and costs
+## one hoisted bool.
+func reachable(
+	start_tile: int, start_facing: int, budget: int,
+	blockers: PackedByteArray = PackedByteArray()
+) -> PackedInt32Array:
 	var t0: int = Time.get_ticks_usec()
 	_query += 1
 	_queue.clear()
 	last_states_expanded = 0
+	var has_blockers: bool = not blockers.is_empty()
 
 	var start: int = state_of(start_tile, start_facing)
 	_g[start] = 0
@@ -185,7 +154,10 @@ func reachable(start_tile: int, start_facing: int, budget: int) -> PackedInt32Ar
 					var ec: int = _edge_cost[tile * 8 + facing]
 					if ec < 0:
 						continue
-					to_state = (_edge_target[tile * 8 + facing] << 3) | facing
+					var fwd: int = _edge_target[tile * 8 + facing]
+					if has_blockers and blockers[fwd] != 0:
+						continue
+					to_state = (fwd << 3) | facing
 					nd = cost + ec
 				_:
 					# Reverse: into the tile behind, without turning round.
@@ -193,7 +165,10 @@ func reachable(start_tile: int, start_facing: int, budget: int) -> PackedInt32Ar
 					var rc: int = _edge_cost[tile * 8 + back]
 					if rc < 0:
 						continue
-					to_state = (_edge_target[tile * 8 + back] << 3) | facing
+					var rev_tile: int = _edge_target[tile * 8 + back]
+					if has_blockers and blockers[rev_tile] != 0:
+						continue
+					to_state = (rev_tile << 3) | facing
 					nd = cost + int(float(rc) * _reverse_mult)
 
 			if nd > budget:
@@ -220,18 +195,28 @@ func reachable(start_tile: int, start_facing: int, budget: int) -> PackedInt32Ar
 ## routes that are visibly not the shortest and are very hard to argue with afterwards. Turn costs
 ## are deliberately *not* folded in: a lower bound on them is easy to get wrong, and getting it
 ## wrong is the same bug.
-func find_path(start_tile: int, start_facing: int, goal_tile: int, budget: int = -1) -> PathResult:
+func find_path(
+	start_tile: int, start_facing: int, goal_tile: int, budget: int = -1,
+	blockers: PackedByteArray = PackedByteArray()
+) -> PathResult:
 	var t0: int = Time.get_ticks_usec()
 	var result := PathResult.new()
 	var limit: int = budget if budget > 0 else _max_cost
+	var has_blockers: bool = not blockers.is_empty()
 
-	if not _md.is_passable(goal_tile):
+	if not _graph.passable(goal_tile):
+		return result
+	# Checked up front as well as per edge: a goal nobody can stand on is not a short search, it is
+	# no search at all.
+	if has_blockers and blockers[goal_tile] != 0:
 		return result
 	if start_tile == goal_tile:
 		result.found = true
 		result.tiles = PackedInt32Array([start_tile])
 		result.facings = PackedInt32Array([start_facing])
 		result.reversed = PackedByteArray([0])
+		result.step_cost = PackedInt32Array([0])
+		result.turn_cost = PackedInt32Array([0])
 		return result
 
 	_query += 1
@@ -292,14 +277,20 @@ func find_path(start_tile: int, start_facing: int, goal_tile: int, budget: int =
 					var ec: int = _edge_cost[tile * 8 + facing]
 					if ec < 0:
 						continue
-					to_state = (_edge_target[tile * 8 + facing] << 3) | facing
+					var fwd: int = _edge_target[tile * 8 + facing]
+					if has_blockers and blockers[fwd] != 0:
+						continue
+					to_state = (fwd << 3) | facing
 					nd = cost + ec
 				_:
 					var back: int = (facing + 4) & 7
 					var rc: int = _edge_cost[tile * 8 + back]
 					if rc < 0:
 						continue
-					to_state = (_edge_target[tile * 8 + back] << 3) | facing
+					var rev_tile: int = _edge_target[tile * 8 + back]
+					if has_blockers and blockers[rev_tile] != 0:
+						continue
+					to_state = (rev_tile << 3) | facing
 					nd = cost + int(float(rc) * _reverse_mult)
 					rev = true
 
@@ -330,12 +321,21 @@ func find_path(start_tile: int, start_facing: int, goal_tile: int, budget: int =
 	for k: int in states.size():
 		var st: int = states[k]
 		var tile2: int = st >> 3
+		# What this one state transition cost. The chain is uncollapsed here, so a turn and a drive
+		# are still separate entries and their prices can be told apart — which is the only place
+		# they ever can be, and the reason step_cost and turn_cost are filled here rather than
+		# recomputed from the collapsed result afterwards.
+		var dg: int = _g[st] - (_g[states[k - 1]] if k > 0 else 0)
 		if result.tiles.size() > 0 and result.tiles[result.tiles.size() - 1] == tile2:
-			# Same tile, new facing: a turn. Overwrite rather than append.
+			# Same tile, new facing: a turn. Overwrite rather than append, and bank what it cost
+			# against the tile it was spent standing on.
 			result.facings[result.facings.size() - 1] = st & 7
+			result.turn_cost[result.turn_cost.size() - 1] += dg
 			continue
 		result.tiles.append(tile2)
 		result.facings.append(st & 7)
+		result.step_cost.append(dg if k > 0 else 0)
+		result.turn_cost.append(0)
 		# Driven in reverse if the facing points away from the direction of travel.
 		var driven_backwards: bool = false
 		if result.tiles.size() > 1:

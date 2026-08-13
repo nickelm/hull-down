@@ -20,14 +20,26 @@ extends RefCounted
 static func evaluate(md: MapData, cfg: Config, master_seed: int) -> Dictionary:
 	var t0: int = Time.get_ticks_usec()
 
+	var graph: TraversalGraph = TraversalGraph.build(md, cfg)
+
 	var sight: Dictionary = sightlines(md, cfg, master_seed)
 	var hull: Dictionary = hull_down_fraction(md, cfg)
-	var choke: int = chokepoints(md, cfg)
+	var choke: int = chokepoints(md, cfg, graph)
 	var balance: Dictionary = zone_balance(md, cfg)
 	var escarpment: float = md.escarpment_fraction()
 	var variety: Dictionary = relief_variety(md)
+	var rivers: Dictionary = river_crossings(md, graph)
 
 	var failures := PackedStringArray()
+
+	# Only gated where the river genuinely divides the map. Where it does not, a crossing count is
+	# not a fact about the terrain, it is a fact about where the channel happened to stop.
+	if bool(rivers["spans_map"]):
+		var cross_min: int = cfg.i("metrics.river_crossings_min", 2)
+		var cross_max: int = cfg.i("metrics.river_crossings_max", 4)
+		var crossings: int = int(rivers["crossings"])
+		if crossings < cross_min or crossings > cross_max:
+			failures.append("river crossings %d outside %d-%d" % [crossings, cross_min, cross_max])
 
 	var sight_min: float = cfg.f("metrics.sightline_median_min_m", 300.0)
 	var sight_max: float = cfg.f("metrics.sightline_median_max_m", 900.0)
@@ -70,6 +82,9 @@ static func evaluate(md: MapData, cfg: Config, master_seed: int) -> Dictionary:
 		"chokepoints": choke,
 		"balance": balance,
 		"chokepoint_frac": choke_frac,
+		"rivers": rivers,
+		"river_crossings": int(rivers["crossings"]),
+		"river_spans_map": bool(rivers["spans_map"]),
 		"escarpment_frac": escarpment,
 		"passable_frac": md.passable_fraction(),
 		"relief": variety,
@@ -269,11 +284,141 @@ static func hull_down_fraction(md: MapData, cfg: Config) -> Dictionary:
 	}
 
 
+# --- rivers ---------------------------------------------------------------------------------------
+
+## Whether the rivers actually divide the map, and how many ways there are across.
+##
+## A river is required to be **diagonally impermeable** — that is the property, and the two-tile
+## width most channels happen to have is only the usual way of achieving it. The property itself is
+## enforced by the corner-tile rule in `MapData.can_move` and asserted directly, tile by tile, in
+## `tests/test_rivers`. What is measured here is the tactical consequence: does the water separate
+## the ground, and if so how many crossings are there.
+##
+## Separation is measured with the crossings taken away — every ford and bridge forced impassable
+## through the same per-query blocker overlay the pathfinder uses for occupancy — and then counting
+## components. Note that a river fades upstream into `STREAM`, which becomes drivable marsh, so a
+## river commonly runs from mid-map to one edge and divides nothing. `spans_map` says which case
+## this seed is, and the crossing count is only meaningful when it holds.
+static func river_crossings(md: MapData, graph: TraversalGraph) -> Dictionary:
+	var river_tiles: int = 0
+	for i: int in md.n:
+		if md.water[i] == MapData.Water.RIVER:
+			river_tiles += 1
+
+	# Crossings out: the components that remain are the banks.
+	var closed := PackedByteArray()
+	closed.resize(md.n)
+	var crossing_tiles := PackedInt32Array()
+	for i2: int in md.n:
+		var w: int = int(md.water[i2])
+		if w == MapData.Water.FORD or w == MapData.Water.BRIDGE:
+			closed[i2] = 1
+			crossing_tiles.append(i2)
+
+	var component: PackedInt32Array = _components(md, graph, closed)
+	var sizes := {}
+	var count: int = 0
+	for i3: int in md.n:
+		var c: int = component[i3]
+		if c < 0:
+			continue
+		sizes[c] = int(sizes.get(c, 0)) + 1
+		count = maxi(count, c + 1)
+
+	# How many crossings actually join two different banks, grouped so a two-tile ford counts once.
+	var joins: int = 0
+	var seen := PackedByteArray()
+	seen.resize(md.n)
+	for k: int in crossing_tiles.size():
+		var t: int = crossing_tiles[k]
+		if seen[t] != 0:
+			continue
+		var touched := {}
+		var stack := PackedInt32Array([t])
+		seen[t] = 1
+		while not stack.is_empty():
+			var c2: int = stack[stack.size() - 1]
+			stack.resize(stack.size() - 1)
+			for d: int in 8:
+				var nb: int = md.neighbor(c2, d)
+				if nb < 0:
+					continue
+				if closed[nb] != 0:
+					if seen[nb] == 0:
+						seen[nb] = 1
+						stack.append(nb)
+				elif component[nb] >= 0:
+					touched[component[nb]] = true
+		if touched.size() >= 2:
+			joins += 1
+
+	# The biggest two components, as a share of the drivable ground. A river that leaves a
+	# three-tile pocket on one side has not divided anything.
+	var ordered := PackedInt32Array()
+	for key: int in sizes:
+		ordered.append(int(sizes[key]))
+	ordered.sort()
+	ordered.reverse()
+	var passable_total: int = 0
+	for v: int in ordered:
+		passable_total += v
+	var second: float = 0.0
+	if ordered.size() >= 2 and passable_total > 0:
+		second = float(ordered[1]) / float(passable_total)
+
+	return {
+		"river_tiles": river_tiles,
+		"components": count,
+		"second_bank_frac": second,
+		"crossings": joins,
+		"spans_map": second >= 0.05,
+	}
+
+
+## Connected components of the drivable ground, with `closed` tiles treated as impassable. -1 where
+## nothing can stand.
+static func _components(
+	md: MapData, graph: TraversalGraph, closed: PackedByteArray
+) -> PackedInt32Array:
+	var component := PackedInt32Array()
+	component.resize(md.n)
+	component.fill(-1)
+
+	var queue := PackedInt32Array()
+	queue.resize(md.n)
+	var next_id: int = 0
+
+	for start: int in md.n:
+		if component[start] >= 0 or not graph.passable(start) or closed[start] != 0:
+			continue
+		var head: int = 0
+		var tail: int = 0
+		queue[tail] = start
+		tail += 1
+		component[start] = next_id
+
+		while head < tail:
+			var c: int = queue[head]
+			head += 1
+			var base: int = c * 8
+			for d: int in 8:
+				var nb: int = graph.edge_target[base + d]
+				if nb < 0 or closed[nb] != 0 or component[nb] >= 0:
+					continue
+				component[nb] = next_id
+				queue[tail] = nb
+				tail += 1
+		next_id += 1
+
+	return component
+
+
 # --- chokepoints -------------------------------------------------------------------------------
 
-static func chokepoints(md: MapData, cfg: Config) -> int:
+static func chokepoints(md: MapData, cfg: Config, graph: TraversalGraph = null) -> int:
 	var cap: int = cfg.i("metrics.chokepoint_cap", 8)
-	return VertexMinCut.min_cut(md, md.zone_tiles(1), md.zone_tiles(2), cap)
+	var g: TraversalGraph = graph if graph != null else TraversalGraph.build(md, cfg)
+	return VertexMinCut.min_cut(md, md.zone_tiles(1), md.zone_tiles(2), cap, g)
 
 
 # --- balance -----------------------------------------------------------------------------------

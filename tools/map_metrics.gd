@@ -64,9 +64,13 @@ func _report(m: Dictionary, cfg: Config) -> void:
 		"hull down", float(hull["fraction"]) * 100.0,
 		cfg.f("metrics.hull_down_min_frac", 0.05) * 100.0,
 	])
-	print("  %-14s %6d     (target %d-%d)" % [
-		"chokepoints", int(m["chokepoints"]),
-		cfg.i("metrics.chokepoint_min", 2), cfg.i("metrics.chokepoint_max", 6),
+	# As a fraction of the map's width, which is what `evaluate` actually gates on. This printed an
+	# absolute "target 2-6" against two config keys that do not exist, so it silently reported the
+	# band superseded by decision 0009 while the real gate was something else entirely.
+	print("  %-14s %6d     (%.1f%% of width, target %.1f-%.1f%%)" % [
+		"chokepoints", int(m["chokepoints"]), float(m["chokepoint_frac"]) * 100.0,
+		cfg.f("metrics.chokepoint_frac_min", 0.05) * 100.0,
+		cfg.f("metrics.chokepoint_frac_max", 0.22) * 100.0,
 	])
 	print("  %-14s %6.1f %%  (elevation %.1f%%, hull-down ground %.1f%%, limit %.1f%%)" % [
 		"imbalance", float(bal["worst_pct"]), float(bal["elev_diff_pct"]),
@@ -78,6 +82,17 @@ func _report(m: Dictionary, cfg: Config) -> void:
 		cfg.f("metrics.escarpment_frac_max", 0.15) * 100.0,
 	])
 	print("  %-14s %6.1f %%" % ["drivable", float(m["passable_frac"]) * 100.0])
+	var riv: Dictionary = m["rivers"]
+	# Only a target where the water actually divides the map — see decision 0018.
+	if bool(riv["spans_map"]):
+		print("  %-14s %6d     (target %d-%d, river divides the map)" % [
+			"crossings", int(riv["crossings"]),
+			cfg.i("metrics.river_crossings_min", 2), cfg.i("metrics.river_crossings_max", 4),
+		])
+	else:
+		print("  %-14s %6d     (%d river tiles, not a barrier on this seed)" % [
+			"crossings", int(riv["crossings"]), int(riv["river_tiles"]),
+		])
 	print("")
 
 	if bool(m["pass"]):
@@ -106,4 +121,6 @@ func _summary(m: Dictionary) -> Dictionary:
 		"imbalance_pct": float(bal["worst_pct"]),
 		"escarpment_frac": float(m["escarpment_frac"]),
 		"passable_frac": float(m["passable_frac"]),
+		"river_crossings": int(m["river_crossings"]),
+		"river_spans_map": bool(m["river_spans_map"]),
 	}

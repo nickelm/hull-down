@@ -5,11 +5,11 @@ extends RefCounted
 ##
 ## What a tile draws depends on how many edges its road connects to:
 ##
-##   degree 2      a quadratic Bezier from one edge midpoint, through the tile centre, to the other.
+##   degree 2      a quadratic Bezier from one edge midpoint, through the tile center, to the other.
 ##                 Straight-through gives a straight line and a turn gives a quarter arc.
-##   degree 1      a straight stub from the centre out to the one connected edge, plus the hub,
+##   degree 1      a straight stub from the center out to the one connected edge, plus the hub,
 ##                 which rounds off the end.
-##   degree 3+     a straight stub per connected edge, plus a hub polygon at the tile centre that
+##   degree 3+     a straight stub per connected edge, plus a hub polygon at the tile center that
 ##                 covers the corners where they meet. This is what an entry/exit pair could not
 ##                 express, and why crossings used to render as holes.
 ##
@@ -18,9 +18,14 @@ extends RefCounted
 ## vertices instead of each being extruded independently — extruding independently leaves a wedge
 ## notch at every joint, which is what turned an eight-sample arc into eight visibly separate
 ## chunks. And at a tile boundary the cross-section works out to exactly the edge perpendicular:
-## the Bezier's control point is the tile centre, so its end tangent is exactly the edge normal, and
+## the Bezier's control point is the tile center, so its end tangent is exactly the edge normal, and
 ## both tiles sharing the edge derive the same axis from integer direction offsets. Neither tile
 ## needs to know anything about the other.
+
+
+## Structural, not a tunable: it exists only to break a depth tie between the junction hub and the
+## stubs it overlaps, and any value large enough to be worth tuning would be visible.
+const HUB_LIFT_M := 0.01
 
 
 static func build(md: MapData, cfg: Config) -> ArrayMesh:
@@ -28,7 +33,7 @@ static func build(md: MapData, cfg: Config) -> ArrayMesh:
 	var half_w: float = cfg.f("roads.width_m", 4.5) * 0.5
 	var lift: float = cfg.f("look.road_lift_m", 0.12)
 	var hub_sides: int = maxi(cfg.i("roads.junction_hub_sides", 8), 3)
-	var colour: Color = cfg.terrain_colours[TerrainTyper.Type.ROAD].lightened(0.06).srgb_to_linear()
+	var color: Color = cfg.terrain_colors[TerrainTyper.Type.ROAD].lightened(0.06).srgb_to_linear()
 
 	var verts := PackedVector3Array()
 	var norms := PackedVector3Array()
@@ -47,16 +52,16 @@ static func build(md: MapData, cfg: Config) -> ArrayMesh:
 			if (mask >> d) & 1 == 1:
 				dirs.append(d)
 
-		var centre: Vector3 = _tile_centre(md, i, lift)
+		var center: Vector3 = _tile_center(md, i, lift)
 
 		if dirs.size() == 2:
 			var p0: Vector3 = _edge_midpoint(md, i, dirs[0], lift)
 			var p2: Vector3 = _edge_midpoint(md, i, dirs[1], lift)
 			pts.clear()
 			for s: int in range(samples + 1):
-				pts.append(_bezier(p0, centre, p2, float(s) / float(samples)))
+				pts.append(_bezier(p0, center, p2, float(s) / float(samples)))
 			_emit_ribbon(
-				verts, norms, cols, pts, half_w, colour,
+				verts, norms, cols, pts, half_w, color,
 				_edge_normal(dirs[0]), _edge_normal(dirs[1])
 			)
 			continue
@@ -67,10 +72,14 @@ static func build(md: MapData, cfg: Config) -> ArrayMesh:
 		for k: int in dirs.size():
 			var n: Vector3 = _edge_normal(dirs[k])
 			pts.clear()
-			pts.append(centre)
+			pts.append(center)
 			pts.append(_edge_midpoint(md, i, dirs[k], lift))
-			_emit_ribbon(verts, norms, cols, pts, half_w, colour, n, n)
-		_emit_hub(verts, norms, cols, centre, half_w, hub_sides, colour)
+			_emit_ribbon(verts, norms, cols, pts, half_w, color, n, n)
+		# The hub overlaps the inner end of every stub, and coplanar overlapping triangles z-fight.
+		# A centimeter of lift breaks the tie without being visible on a 4.5 m ribbon; moving the
+		# stubs out to the rim instead would leave a hairline gap at each corner.
+		_emit_hub(verts, norms, cols, center + Vector3(0.0, HUB_LIFT_M, 0.0),
+			half_w, hub_sides, color)
 
 	if verts.is_empty():
 		return null
@@ -91,7 +100,7 @@ static func _bezier(a: Vector3, b: Vector3, c: Vector3, t: float) -> Vector3:
 	return a * (u * u) + b * (2.0 * u * t) + c * (t * t)
 
 
-static func _tile_centre(md: MapData, i: int, lift: float) -> Vector3:
+static func _tile_center(md: MapData, i: int, lift: float) -> Vector3:
 	return Vector3(
 		(float(md.tx(i)) + 0.5) * md.tile_m,
 		float(md.level[i]) * md.quant + lift,
@@ -112,7 +121,7 @@ static func _edge_midpoint(md: MapData, i: int, d: int, lift: float) -> Vector3:
 	var half: float = md.tile_m * 0.5
 
 	var lv: int = md.level[i]
-	var nb: int = md.neighbour(i, d)
+	var nb: int = md.neighbor(i, d)
 	if nb >= 0:
 		lv = maxi(lv, md.level[nb])
 
@@ -139,7 +148,7 @@ static func _edge_normal(d: int) -> Vector3:
 ##
 ## `end_a` and `end_b` force the normal of the first and last cross-sections, and this is what makes
 ## a seam exact. It is tempting to let the endpoints derive their normal like everything else — the
-## Bezier's control point is the tile centre, so its *derivative* at the endpoint is exactly the
+## Bezier's control point is the tile center, so its *derivative* at the endpoint is exactly the
 ## edge normal. But the ribbon is built from *chords*, and the chord to the first sample has already
 ## begun to curve toward the far edge. On a quarter arc at eight samples that tilts the end
 ## cross-section by about nine degrees, which moved the seam vertices 15 cm off the tile boundary
@@ -147,7 +156,7 @@ static func _edge_normal(d: int) -> Vector3:
 ## that reads as a crack in the road.
 static func _emit_ribbon(
 	verts: PackedVector3Array, norms: PackedVector3Array, cols: PackedColorArray,
-	pts: PackedVector3Array, half_w: float, colour: Color,
+	pts: PackedVector3Array, half_w: float, color: Color,
 	end_a: Vector3 = Vector3.ZERO, end_b: Vector3 = Vector3.ZERO
 ) -> void:
 	var n: int = pts.size()
@@ -213,7 +222,7 @@ static func _emit_ribbon(
 		for vtx: Vector3 in [pl, cl, cr, pl, cr, pr]:
 			verts.push_back(vtx)
 			norms.push_back(Vector3.UP)
-			cols.push_back(colour)
+			cols.push_back(color)
 
 
 ## `forced` if one was given, flipped to sit on the same side as `derived`; otherwise `derived`.
@@ -223,17 +232,17 @@ static func _oriented(forced: Vector3, derived: Vector3) -> Vector3:
 	return -forced if forced.dot(derived) < 0.0 else forced
 
 
-## A regular polygon at a junction's centre, as a triangle fan. Wound to match the ribbon.
+## A regular polygon at a junction's center, as a triangle fan. Wound to match the ribbon.
 static func _emit_hub(
 	verts: PackedVector3Array, norms: PackedVector3Array, cols: PackedColorArray,
-	centre: Vector3, radius: float, sides: int, colour: Color
+	center: Vector3, radius: float, sides: int, color: Color
 ) -> void:
 	for k: int in sides:
 		var a0: float = TAU * float(k) / float(sides)
 		var a1: float = TAU * float(k + 1) / float(sides)
-		var v0 := centre + Vector3(cos(a0), 0.0, sin(a0)) * radius
-		var v1 := centre + Vector3(cos(a1), 0.0, sin(a1)) * radius
-		for vtx: Vector3 in [centre, v0, v1]:
+		var v0 := center + Vector3(cos(a0), 0.0, sin(a0)) * radius
+		var v1 := center + Vector3(cos(a1), 0.0, sin(a1)) * radius
+		for vtx: Vector3 in [center, v0, v1]:
 			verts.push_back(vtx)
 			norms.push_back(Vector3.UP)
-			cols.push_back(colour)
+			cols.push_back(color)

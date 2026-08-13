@@ -4,9 +4,9 @@ extends RefCounted
 ## The gameplay map. Everything from stage 4.6 onward reads this and never touches the continuous
 ## heightfield again.
 ##
-## **Elevation is stored as integer quanta, not metres.** `level[i] * 0.5` is the height in metres.
+## **Elevation is stored as integer quanta, not meters.** `level[i] * 0.5` is the height in meters.
 ## That choice propagates: the spec's traversal thresholds become exact integer comparisons —
-## `|dl| <= 2` is "under a metre", `3..4` is "one to two metres", `>= 5` is an escarpment — so there
+## `|dl| <= 2` is "under a meter", `3..4` is "one to two meters", `>= 5` is an escarpment — so there
 ## is no epsilon anywhere in passability, and the map hashes cleanly for the determinism tests.
 ##
 ## Every per-tile layer is a flat Packed*Array of `n` entries. The whole map is about a megabyte,
@@ -32,7 +32,7 @@ var level: PackedInt32Array
 ## TerrainTyper.Type per tile.
 var terrain: PackedByteArray
 ## Transition class per tile for the four canonical directions (E, SE, S, SW), `n * 4` entries.
-## The reverse of each edge is read from the neighbour rather than stored twice, so edge symmetry
+## The reverse of each edge is read from the neighbor rather than stored twice, so edge symmetry
 ## is structural instead of something to test for.
 var trans: PackedByteArray
 ## Movement cost multiplier x10, from terrain.json. -10 marks impassable ground.
@@ -43,10 +43,18 @@ var water: PackedByteArray
 var water_level: PackedInt32Array
 ## Normalized log flow accumulation, 0..1.
 var moisture: PackedFloat32Array
-## Height of line-of-sight-blocking cover above ground, in metres. Woods and villages set this.
+## Height of line-of-sight-blocking cover above ground, in meters. Woods and villages set this.
 var blocker_h: PackedFloat32Array
+## Cover that arrived during the match rather than at generation — wrecks, today (0031).
+##
+## A separate layer from `blocker_h` for one reason that matters: it is **match state, not map
+## content**. It is excluded from `content_hash()` and from `MapCodec`, so destroying a tank does not
+## change the map's identity and every pinned seed stays pinned. Adding it into `blocker_top_m` is
+## what gets wrecks into `Los`, `VisionField` and the metrics with no signature change anywhere and
+## one extra array read in a loop that already does two.
+var blocker_dyn: PackedFloat32Array
 ## Road connectivity per tile, as a bitmask: bit `d` is set when this tile's road connects to its
-## neighbour in direction `d`. Zero means no road.
+## neighbor in direction `d`. Zero means no road.
 ##
 ## A mask rather than an entry/exit pair because a tile can carry more than one road. Two roads
 ## crossing produce a degree-4 tile, and stamping ORs bits in, so neither road is erased by the
@@ -57,6 +65,11 @@ var deploy_zone: PackedByteArray
 ## Tile indices of the objectives. Connectivity anchors and metric anchors in iteration 1; nothing
 ## captures them until iteration 2.
 var objectives: PackedInt32Array
+## Victory points per objective, parallel to `objectives` — 2e-iii. A village is worth more than a
+## bridge, a bridge more than a bare crest, because the values follow how contested the ground is:
+## a village is cover, a road hub and a spotting trap at once. `objective_value()` answers 1 for a
+## map built before this array existed, so hand-built fixtures and old caches keep working.
+var objective_value: PackedInt32Array
 
 ## Lazy cache behind `max_level()`. INT_MIN means "not computed yet".
 const INT_MIN := -9223372036854775808
@@ -83,12 +96,26 @@ static func create(grid_size: int = Grid.SIZE) -> MapData:
 	m.moisture.resize(m.n)
 	m.blocker_h = PackedFloat32Array()
 	m.blocker_h.resize(m.n)
+	m.blocker_dyn = PackedFloat32Array()
+	m.blocker_dyn.resize(m.n)
 	m.road_links = PackedByteArray()
 	m.road_links.resize(m.n)
 	m.deploy_zone = PackedByteArray()
 	m.deploy_zone.resize(m.n)
 	m.objectives = PackedInt32Array()
+	m.objective_value = PackedInt32Array()
 	return m
+
+
+## The points objective `k` is worth. 1 for any map whose values were never assigned — a missing
+## decision must read as "a plain objective", never as "worthless", or capture logic silently
+## ignores every hand-built fixture.
+func objective_worth(k: int) -> int:
+	if k < 0 or k >= objectives.size():
+		return 0
+	if k >= objective_value.size():
+		return 1
+	return maxi(objective_value[k], 1)
 
 
 func idx(x: int, y: int) -> int:
@@ -115,13 +142,29 @@ func water_m(i: int) -> float:
 	return float(water_level[i]) * quant
 
 
-## Height of the line-of-sight silhouette at a tile: the ground plus whatever stands on it.
+## Height of the line-of-sight silhouette at a tile: the ground, whatever grew on it, and whatever
+## has been destroyed on it.
+##
+## One extra read is the whole cost of wrecks reaching every sight test in the game — docs/decisions/
+## 0031. `Los`, `VisionField` and the sightline metric all go through here and none of them changed.
 func blocker_top_m(i: int) -> float:
-	return float(level[i]) * quant + blocker_h[i]
+	return float(level[i]) * quant + blocker_h[i] + blocker_dyn[i]
 
 
-## Neighbour tile index in direction `d`, or -1 off the map.
-func neighbour(i: int, d: int) -> int:
+## Neighbor tile index in direction `d`, or -1 off the map.
+## Straight-line distance between two tile centers, in meters.
+##
+## `Grid.dist_m` answers the same question and is wrong here: it decodes tiles with the shipping
+## `Grid.SIZE`, and the tests run quarter-scale maps. Anything that turns a tile index into a
+## coordinate has to go through the map it came from — this is that, for the range checks spotting
+## and gunnery make constantly.
+func dist_m(a: int, b: int) -> float:
+	var dx: int = tx(b) - tx(a)
+	var dy: int = ty(b) - ty(a)
+	return tile_m * sqrt(float(dx * dx + dy * dy))
+
+
+func neighbor(i: int, d: int) -> int:
 	var x: int = i % size + Grid.DX[d]
 	var y: int = i / size + Grid.DY[d]
 	if x < 0 or x >= size or y < 0 or y >= size:
@@ -131,14 +174,14 @@ func neighbour(i: int, d: int) -> int:
 
 ## Transition class leaving tile `i` in direction `d`.
 ##
-## Only four directions are stored. For the other four the edge is looked up from the neighbour in
+## Only four directions are stored. For the other four the edge is looked up from the neighbor in
 ## the opposite direction, which is the same edge — so `transition(a, E)` and `transition(b, W)` can
 ## never disagree, because they read the same byte.
 func transition(i: int, d: int) -> int:
 	var slot: int = Grid.CANON_SLOT[d]
 	if slot >= 0:
 		return int(trans[i * 4 + slot])
-	var nb: int = neighbour(i, d)
+	var nb: int = neighbor(i, d)
 	if nb < 0:
 		return Trans.BLOCKED
 	return int(trans[nb * 4 + Grid.CANON_SLOT[Grid.opposite(d)]])
@@ -149,18 +192,24 @@ func set_transition(i: int, d: int, value: int) -> void:
 	if slot >= 0:
 		trans[i * 4 + slot] = value
 		return
-	var nb: int = neighbour(i, d)
+	var nb: int = neighbor(i, d)
 	if nb >= 0:
 		trans[nb * 4 + Grid.CANON_SLOT[Grid.opposite(d)]] = value
 
 
 ## Whether a tank can move from `i` in direction `d`.
 ##
-## Diagonals additionally require both adjoining orthogonal edges to be passable. Without that a
-## tank slips between two escarpment corners that meet at a point — legal on the graph, absurd on
-## the ground.
+## Diagonals additionally require both adjoining orthogonal edges to be passable, and both corner
+## *tiles* to be ground a tank could stand on. Without the first a tank slips between two escarpment
+## corners that meet at a point; without the second it slips between two tiles of river that meet at
+## a point, which is the same absurdity wearing different clothes.
+##
+## The corner-tile half is what makes a river impermeable. A one-tile-wide diagonal channel — water
+## at (5,5) and (6,6), land at (6,5) and (5,6) — has a land destination and flat transitions, so
+## every other test passes it and a tank drives across the water. Width does not fix that; this
+## does.
 func can_move(i: int, d: int) -> bool:
-	var nb: int = neighbour(i, d)
+	var nb: int = neighbor(i, d)
 	if nb < 0:
 		return false
 	if move_cost[nb] < 0:
@@ -171,7 +220,11 @@ func can_move(i: int, d: int) -> bool:
 		return true
 	var da: int = (d + 7) & 7
 	var db: int = (d + 1) & 7
-	return transition(i, da) < Trans.BLOCKED and transition(i, db) < Trans.BLOCKED
+	if transition(i, da) >= Trans.BLOCKED or transition(i, db) >= Trans.BLOCKED:
+		return false
+	var ca: int = neighbor(i, da)
+	var cb: int = neighbor(i, db)
+	return ca >= 0 and cb >= 0 and move_cost[ca] >= 0 and move_cost[cb] >= 0
 
 
 func is_passable(i: int) -> bool:
@@ -218,11 +271,11 @@ func has_road_link(i: int, d: int) -> bool:
 	return (int(road_links[i]) >> d) & 1 == 1
 
 
-## Connect a tile's road to its neighbour in direction `d`, from both sides. Symmetry is maintained
+## Connect a tile's road to its neighbor in direction `d`, from both sides. Symmetry is maintained
 ## here rather than checked for later; the mesh builder relies on it to make seams exact.
 func link_road(i: int, d: int) -> void:
 	road_links[i] = int(road_links[i]) | (1 << d)
-	var nb: int = neighbour(i, d)
+	var nb: int = neighbor(i, d)
 	if nb >= 0:
 		road_links[nb] = int(road_links[nb]) | (1 << Grid.opposite(d))
 
@@ -245,6 +298,8 @@ func content_hash() -> String:
 	# HashingContext.update rejects an empty buffer, and objectives is empty on a bare MapData.
 	if not objectives.is_empty():
 		ctx.update(objectives.to_byte_array())
+	if not objective_value.is_empty():
+		ctx.update(objective_value.to_byte_array())
 	return ctx.finish().hex_encode()
 
 
@@ -252,7 +307,7 @@ func content_hash() -> String:
 ##
 ## The number that keeps the angle of repose honest. Too low and there are no escarpments at all,
 ## so the connectivity repair in 4.6 is code that never runs and the map has no hard edges to
-## manoeuvre around. Too high and the map is a maze of cliffs with a few drivable corridors, which
+## maneuver around. Too high and the map is a maze of cliffs with a few drivable corridors, which
 ## is what 220 m of relief at a 40 degree repose produced on the first attempt.
 func escarpment_fraction() -> float:
 	var blocked: int = 0

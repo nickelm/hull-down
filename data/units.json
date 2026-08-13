@@ -1,64 +1,72 @@
 {
-  "_comment": "v1 roster. Defined now, unused in iteration 1 — only the movement block is read (by the tank entity in 4.12). Armour is millimetres of effective thickness by facing: front / side / rear / top. Penetration is millimetres at 1000 m. Shred is the per-hit armour degradation on a non-penetrating hit. Optics is the base spotting range in metres.",
-
+  "_comment": "v1 roster. Armor is millimeters of effective thickness by facing: front / left / right / rear / top — five facings, as docs/decisions/0004 and docs/design/rules.md have specified since they were written. Left and right carry the same number today; they are separate keys so that the day a unit is asymmetric it is a data change and not a code change. Penetration is millimeters at 1000 m and falls off with range through combat.pen_falloff_per_100m. Shred is the per-hit armor degradation on a non-penetrating hit. Accuracy is a per-gun multiplier on combat.base_hit_chance. Ammo overrides combat.default_ammo. Optics is the base spotting range in meters for a stationary unit in the open, before terrain concealment, movement and exposure are applied.",
+  "_optics_note": "The optics were 1400 / 1150 / 900 m against maps whose measured median clear sightline is about 141 m (docs/decisions/0020), which meant range never bound and the light tank's optics advantage was invisible. Iteration 2 picked, and picked the terrain: these are sighted so that concealment and movement land effective ranges inside the band the maps actually offer. A stationary tank in heavy woods (x0.25) goes unseen until 80-125 m; one sprinting across the open is seen as far as line of sight reaches.",
+  "_assault_note": "The wave attacker's tank — 2g. Deliberately worse than everything else on every axis but numbers: armor under the light tank's, penetration that needs a flank or the rear even against the medium, and the poorest optics on the roster, so the attacking mass advances half-blind into defenders it cannot see. Its mp sits between light and medium — the waves must arrive, not trickle.",
   "units": {
+    "assault": {
+      "display_name": "Assault Tank",
+      "role": "Wave attacker — numbers over quality",
+      "movement": { "class": "tracked", "mp": 260, "turn_cost_per_45": 2, "reverse_mult": 1.5 },
+      "armor": { "front": 35, "left": 18, "right": 18, "rear": 14, "top": 10 },
+      "gun": {
+        "calibre_mm": 45,
+        "penetration_mm": 48,
+        "shred_mm": 5,
+        "shots_per_action": 1,
+        "accuracy": 0.95,
+        "ammo": 12
+      },
+      "optics": { "base_range_m": 240 },
+      "dimensions": { "hull_h_m": 1.2, "turret_h_m": 2.2 }
+    },
     "light": {
       "display_name": "Light Tank",
-      "role": "Recon, flanking, armour shred",
-      "movement": {
-        "mp": 300,
-        "turn_cost_per_45": 2,
-        "reverse_mult": 1.5
-      },
-      "armour": { "front": 40, "side": 22, "rear": 18, "top": 12 },
+      "role": "Recon, flanking, armor shred",
+      "movement": { "class": "tracked", "mp": 300, "turn_cost_per_45": 2, "reverse_mult": 1.5 },
+      "armor": { "front": 40, "left": 22, "right": 22, "rear": 18, "top": 12 },
       "gun": {
         "calibre_mm": 45,
         "penetration_mm": 55,
         "shred_mm": 6,
-        "shots_per_action": 2
+        "shots_per_action": 2,
+        "accuracy": 1.10,
+        "ammo": 20
       },
-      "optics": { "base_range_m": 1400 },
+      "optics": { "base_range_m": 500 },
       "dimensions": { "hull_h_m": 1.2, "turret_h_m": 2.2 }
     },
-
     "medium": {
       "display_name": "Medium Tank",
       "role": "Generalist",
-      "movement": {
-        "mp": 220,
-        "turn_cost_per_45": 3,
-        "reverse_mult": 1.6
-      },
-      "armour": { "front": 90, "side": 45, "rear": 35, "top": 20 },
+      "movement": { "class": "tracked", "mp": 220, "turn_cost_per_45": 3, "reverse_mult": 1.6 },
+      "armor": { "front": 90, "left": 45, "right": 45, "rear": 35, "top": 20 },
       "gun": {
         "calibre_mm": 90,
         "penetration_mm": 120,
         "shred_mm": 10,
-        "shots_per_action": 1
+        "shots_per_action": 1,
+        "accuracy": 1.00,
+        "ammo": 12
       },
-      "optics": { "base_range_m": 1150 },
+      "optics": { "base_range_m": 400 },
       "dimensions": { "hull_h_m": 1.4, "turret_h_m": 2.6 }
     },
-
     "heavy": {
       "display_name": "Heavy Tank",
       "role": "Anchor, breakthrough",
-      "movement": {
-        "mp": 150,
-        "turn_cost_per_45": 5,
-        "reverse_mult": 1.9
-      },
-      "armour": { "front": 180, "side": 80, "rear": 55, "top": 30 },
+      "movement": { "class": "tracked", "mp": 150, "turn_cost_per_45": 5, "reverse_mult": 1.9 },
+      "armor": { "front": 180, "left": 80, "right": 80, "rear": 55, "top": 30 },
       "gun": {
         "calibre_mm": 122,
         "penetration_mm": 190,
         "shred_mm": 16,
-        "shots_per_action": 1
+        "shots_per_action": 1,
+        "accuracy": 0.92,
+        "ammo": 8
       },
-      "optics": { "base_range_m": 900 },
+      "optics": { "base_range_m": 320 },
       "dimensions": { "hull_h_m": 1.6, "turret_h_m": 2.9 }
     }
   },
-
   "default_unit": "medium"
 }

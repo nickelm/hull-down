@@ -108,7 +108,7 @@ part to `game/` and pass plain data across.
 
 `data/rules.json`, `data/terrain.json`, `data/units.json`, `data/pinned_seeds.json`.
 
-No magic number in a `.gd` file. If you are about to type a threshold, a cost, a colour, or a
+No magic number in a `.gd` file. If you are about to type a threshold, a cost, a color, or a
 probability into code, it belongs in JSON and is read through `Config`. Structural constants
 (grid size, quantum, direction tables) are the exception and live in `Grid` / `MapData`.
 

@@ -12,7 +12,7 @@ extends RefCounted
 ## rules use, which is the same contract the terraced mesh keeps with the movement rules.
 ##
 ## One `MultiMesh` per terrain chunk, matching `TerrainMeshBuilder.CHUNK`. A single map-wide
-## instance would have one two-kilometre bounding box and would never be frustum-culled.
+## instance would have one two-kilometer bounding box and would never be frustum-culled.
 
 const CHUNK := TerrainMeshBuilder.CHUNK
 
@@ -28,7 +28,6 @@ static func place(md: MapData, cfg: Config) -> Array:
 	var inset: float = clampf(cfg.f("look.scatter.inset_frac", 0.14), 0.0, 0.45)
 	var jitter: float = clampf(cfg.f("look.scatter.scale_jitter", 0.10), 0.0, 0.5)
 
-	var tree_h: float = cfg.terrain_blocker_h[TerrainTyper.Type.WOODS]
 	var building_h: float = cfg.terrain_blocker_h[TerrainTyper.Type.VILLAGE]
 
 	var chunks: int = int(ceil(float(md.size) / float(CHUNK)))
@@ -49,11 +48,17 @@ static func place(md: MapData, cfg: Config) -> Array:
 						continue
 
 					var t: int = int(md.terrain[i])
-					if t == TerrainTyper.Type.WOODS:
-						for j: int in per_tile:
-							trees.append(_one(md, i, j, inset, jitter, tree_h, false))
-					elif t == TerrainTyper.Type.VILLAGE:
+					if t == TerrainTyper.Type.VILLAGE:
 						buildings.append(_one(md, i, 0, inset, jitter, building_h, true))
+					elif TerrainTyper.is_woods(t):
+						# Height per tier, straight from the tile's own blocker. Splitting woods
+						# into tiers and leaving this matching WOODS exactly would have given the
+						# new tiers no scatter at all, silently — light woods would read as open
+						# ground while Los kept marching against its cover, which is precisely the
+						# defect the note at the top of this file is about.
+						var h: float = cfg.terrain_blocker_h[t]
+						for j: int in per_tile:
+							trees.append(_one(md, i, j, inset, jitter, h, false))
 
 			if not trees.is_empty():
 				out.append({"kind": Kind.TREE, "cx": cx, "cy": cy, "xforms": trees})
@@ -142,8 +147,12 @@ static func build(md: MapData, cfg: Config, palette: Palette) -> Array:
 static func tree_mesh(cfg: Config) -> ArrayMesh:
 	var trunk_frac: float = clampf(cfg.f("look.scatter.trunk_frac", 0.28), 0.05, 0.9)
 	var canopy_r: float = cfg.f("look.scatter.canopy_radius_m", 2.3)
+	# The ordinary tier is the reference height. One mesh serves all three: the instance transform
+	# scales it uniformly by each tile's own blocker, so a light stand comes out both shorter and
+	# proportionally narrower, which is what distinguishes brush from timber on screen. Authoring a
+	# separate mesh per tier would put the canopy radius in two places and let them disagree.
 	var tree_h: float = maxf(cfg.terrain_blocker_h[TerrainTyper.Type.WOODS], 0.001)
-	# Radii are authored in metres but the mesh is unit-height, so they divide out by the height the
+	# Radii are authored in meters but the mesh is unit-height, so they divide out by the height the
 	# instance transform will scale by.
 	var r: float = canopy_r / tree_h
 
@@ -151,8 +160,8 @@ static func tree_mesh(cfg: Config) -> ArrayMesh:
 	var norms := PackedVector3Array()
 	var cols := PackedColorArray()
 
-	var trunk: Color = cfg.colour("look.scatter.trunk_colour", Color(0.29, 0.23, 0.17))
-	var canopy: Color = cfg.colour("look.scatter.canopy_colour", Color(0.20, 0.27, 0.16))
+	var trunk: Color = cfg.color("look.scatter.trunk_color", Color(0.29, 0.23, 0.17))
+	var canopy: Color = cfg.color("look.scatter.canopy_color", Color(0.20, 0.27, 0.16))
 	_prism(verts, norms, cols, 6, r * 0.22, 0.0, trunk_frac, trunk.srgb_to_linear())
 	_cone(verts, norms, cols, 6, r, trunk_frac, 1.0, canopy.srgb_to_linear())
 
@@ -169,10 +178,10 @@ static func building_mesh(cfg: Config) -> ArrayMesh:
 	var norms := PackedVector3Array()
 	var cols := PackedColorArray()
 
-	var wall: Color = cfg.colour("look.scatter.building_colour", Color(0.60, 0.55, 0.49))
-	var roof: Color = cfg.colour("look.scatter.roof_colour", Color(0.43, 0.31, 0.26))
+	var wall: Color = cfg.color("look.scatter.building_color", Color(0.60, 0.55, 0.49))
+	var roof: Color = cfg.color("look.scatter.roof_color", Color(0.43, 0.31, 0.26))
 	_box(verts, norms, cols, w, d, 0.0, 0.68, wall.srgb_to_linear())
-	_cone(verts, norms, cols, 4, maxf(w, d) * 0.72, 0.68, 1.0, roof.srgb_to_linear())
+	_pyramid(verts, norms, cols, w, d, 0.68, 1.0, roof.srgb_to_linear())
 
 	return _finish(verts, norms, cols)
 
@@ -192,7 +201,7 @@ static func _finish(
 
 static func _tri(
 	verts: PackedVector3Array, norms: PackedVector3Array, cols: PackedColorArray,
-	a: Vector3, b: Vector3, c: Vector3, colour: Color
+	a: Vector3, b: Vector3, c: Vector3, color: Color
 ) -> void:
 	# Flat shaded like the terrain: one normal per face, vertices never shared.
 	var nrm: Vector3 = (b - a).cross(c - b)
@@ -202,12 +211,12 @@ static func _tri(
 	for v: Vector3 in [a, b, c]:
 		verts.push_back(v)
 		norms.push_back(nrm)
-		cols.push_back(colour)
+		cols.push_back(color)
 
 
 static func _prism(
 	verts: PackedVector3Array, norms: PackedVector3Array, cols: PackedColorArray,
-	sides: int, r: float, y0: float, y1: float, colour: Color
+	sides: int, r: float, y0: float, y1: float, color: Color
 ) -> void:
 	for k: int in sides:
 		var a0: float = TAU * float(k) / float(sides)
@@ -215,14 +224,14 @@ static func _prism(
 		var p0 := Vector3(cos(a0) * r, 0.0, sin(a0) * r)
 		var p1 := Vector3(cos(a1) * r, 0.0, sin(a1) * r)
 		_tri(verts, norms, cols, p0 + Vector3(0, y0, 0), p1 + Vector3(0, y0, 0),
-			p1 + Vector3(0, y1, 0), colour)
+			p1 + Vector3(0, y1, 0), color)
 		_tri(verts, norms, cols, p0 + Vector3(0, y0, 0), p1 + Vector3(0, y1, 0),
-			p0 + Vector3(0, y1, 0), colour)
+			p0 + Vector3(0, y1, 0), color)
 
 
 static func _cone(
 	verts: PackedVector3Array, norms: PackedVector3Array, cols: PackedColorArray,
-	sides: int, r: float, y0: float, y1: float, colour: Color
+	sides: int, r: float, y0: float, y1: float, color: Color
 ) -> void:
 	var apex := Vector3(0.0, y1, 0.0)
 	for k: int in sides:
@@ -230,14 +239,14 @@ static func _cone(
 		var a1: float = TAU * float(k + 1) / float(sides)
 		var p0 := Vector3(cos(a0) * r, y0, sin(a0) * r)
 		var p1 := Vector3(cos(a1) * r, y0, sin(a1) * r)
-		_tri(verts, norms, cols, p0, p1, apex, colour)
+		_tri(verts, norms, cols, p0, p1, apex, color)
 		# Underside, so a canopy seen from below is not a hole.
-		_tri(verts, norms, cols, Vector3(0.0, y0, 0.0), p1, p0, colour)
+		_tri(verts, norms, cols, Vector3(0.0, y0, 0.0), p1, p0, color)
 
 
 static func _box(
 	verts: PackedVector3Array, norms: PackedVector3Array, cols: PackedColorArray,
-	w: float, d: float, y0: float, y1: float, colour: Color
+	w: float, d: float, y0: float, y1: float, color: Color
 ) -> void:
 	var hx: float = w * 0.5
 	var hz: float = d * 0.5
@@ -249,6 +258,27 @@ static func _box(
 		var p0: Vector3 = corners[k]
 		var p1: Vector3 = corners[(k + 1) % 4]
 		_tri(verts, norms, cols, p0 + Vector3(0, y0, 0), p1 + Vector3(0, y0, 0),
-			p1 + Vector3(0, y1, 0), colour)
+			p1 + Vector3(0, y1, 0), color)
 		_tri(verts, norms, cols, p0 + Vector3(0, y0, 0), p1 + Vector3(0, y1, 0),
-			p0 + Vector3(0, y1, 0), colour)
+			p0 + Vector3(0, y1, 0), color)
+
+
+## A roof: four triangles from the box's own corners up to a ridge point.
+##
+## Built from the footprint rather than from a regular polygon. A four-sided `_cone` puts a base
+## vertex on +X, so its corners land on the *face midpoints* of an axis-aligned box and every roof
+## sat 45 degrees out of true — and even phased round a quarter turn it can only ever be square,
+## which a 6 x 7 m building is not.
+static func _pyramid(
+	verts: PackedVector3Array, norms: PackedVector3Array, cols: PackedColorArray,
+	w: float, d: float, y0: float, y1: float, color: Color
+) -> void:
+	var hx: float = w * 0.5
+	var hz: float = d * 0.5
+	var corners := PackedVector3Array([
+		Vector3(-hx, y0, -hz), Vector3(hx, y0, -hz),
+		Vector3(hx, y0, hz), Vector3(-hx, y0, hz),
+	])
+	var apex := Vector3(0.0, y1, 0.0)
+	for k: int in 4:
+		_tri(verts, norms, cols, corners[k], corners[(k + 1) % 4], apex, color)

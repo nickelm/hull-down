@@ -1,0 +1,25 @@
+{
+  "_comment": "The dig-in mission — 2f and 2g, docs/decisions/0041. A dug-in defender around the objectives against an attacker at roughly three and a half to one, arriving in three waves of assault tanks from the western edge. The defender is outnumbered and outranged on nothing: it sees further, hits harder, and starts unspotted and hull down. The attacker has numbers, and numbers arrive on a clock.",
+  "name": "Dig In",
+  "map_seed": 1017,
+  "turn_limit": 20,
+  "sides": [
+    {
+      "side": 1,
+      "deploy": "zone",
+      "zone": 1,
+      "units": ["assault", "assault", "assault", "assault", "assault", "assault"],
+      "waves": [
+        { "turn": 4, "edge": "west", "units": ["assault", "assault", "assault", "assault"] },
+        { "turn": 8, "edge": "west", "units": ["assault", "assault", "assault", "assault"] }
+      ]
+    },
+    {
+      "side": 2,
+      "deploy": "objectives",
+      "radius_tiles": 5,
+      "entrenched": true,
+      "units": ["heavy", "medium", "medium", "light"]
+    }
+  ]
+}

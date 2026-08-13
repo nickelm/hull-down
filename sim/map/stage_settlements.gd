@@ -3,9 +3,16 @@ extends RefCounted
 
 ## Stage 4.8, second half — villages and their fields.
 ##
-## Villages go where people would put them: at road junctions, and at river crossings. Both are
-## already on the map by the time this runs, so nothing here decides where a settlement "should"
-## be — it reads where the roads and the water already made one inevitable.
+## Villages used to go wherever the roads had already made a junction, which meant the settlements
+## were a consequence of the road network. That is backwards as geography: people settle on good
+## ground and then build roads between the places they settled. So the **sites are chosen first**,
+## on the ground a village would actually want, and the road network is a spanning tree over them —
+## see docs/decisions/0019.
+##
+## Choosing and stamping are separate calls, and the split is load-bearing. A village flattens its
+## footprint to a median height and the road runs straight through the middle of it, so the stamp
+## has to happen *after* the road earthworks and be followed by a resmooth. Only the choosing moved
+## earlier.
 ##
 ## Tactically a village is cover that blocks line of sight and slows movement, sitting on exactly
 ## the ground both sides want. Fields ring it: open, fast, and completely exposed.
@@ -13,86 +20,84 @@ extends RefCounted
 const TAG := "settlements"
 
 
-static func place(md: MapData, roads: Array, cfg: Config, master_seed: int) -> int:
-	var max_villages: int = cfg.i("settlements.max_villages", 4)
-	var village_r: int = cfg.i("settlements.village_radius_tiles", 2)
-	var field_r: int = cfg.i("settlements.field_radius_tiles", 4)
+## Where the villages will go, chosen before a single road is routed.
+##
+## Low, flat, dry, drivable ground away from the deployment zones, spread out. The scoring is
+## deliberately plain — this decides where the map's landmarks are, and a clever rule here would be
+## hard to argue with when a seed puts a village somewhere silly.
+static func choose_sites(md: MapData, cfg: Config, master_seed: int) -> PackedInt32Array:
+	var want: int = cfg.i("settlements.site_count", 4)
 	var min_sep: float = cfg.f("settlements.min_separation_tiles", 25.0)
+	var field_r: int = cfg.i("settlements.field_radius_tiles", 4)
+	var margin: int = field_r + 2
+
+	# Drawn from the settlements substream, which until now was declared and never used. Its only
+	# job is to break ties between equally good ground so the villages are not always in the same
+	# corner of the elevation histogram.
+	var rng: RandomNumberGenerator = Rng.substream(master_seed, Rng.Stream.TERRAIN, TAG)
+
+	var scored := PackedInt64Array()
+	for i: int in md.n:
+		var x: int = i % md.size
+		var y: int = i / md.size
+		if x < margin or y < margin or x >= md.size - margin or y >= md.size - margin:
+			continue
+		if not md.is_passable(i) or md.deploy_zone[i] != 0:
+			continue
+		if md.water[i] != MapData.Water.NONE:
+			continue
+		var t: int = int(md.terrain[i])
+		if t == TerrainTyper.Type.ROCK or t == TerrainTyper.Type.MARSH:
+			continue
+		if TerrainTyper.is_woods(t):
+			continue
+
+		# Flat ground, low down, with a nudge so ties do not resolve by tile order.
+		var rough: int = 0
+		for d: int in 4:
+			var nb: int = md.neighbor(i, Grid.CANON[d])
+			if nb >= 0:
+				rough += absi(md.level[nb] - md.level[i])
+		var key: int = clampi(md.level[i] + rough * 8 + rng.randi_range(0, 3), 0, 999999)
+		scored.append((key << 21) | i)
+	scored.sort()
+
+	var chosen := PackedInt32Array()
 	var min_sep2: float = min_sep * min_sep
-
-	var candidates: PackedInt32Array = _candidates(md, roads, cfg)
-	var placed := PackedInt32Array()
-
-	for k: int in candidates.size():
-		if placed.size() >= max_villages:
+	for k: int in scored.size():
+		if chosen.size() >= want:
 			break
-		var c: int = candidates[k]
+		var tile: int = int(scored[k] & 0x1FFFFF)
 		var ok: bool = true
-		for p: int in placed.size():
-			var dx: float = float(md.tx(c) - md.tx(placed[p]))
-			var dy: float = float(md.ty(c) - md.ty(placed[p]))
+		for c: int in chosen.size():
+			var dx: float = float(md.tx(tile) - md.tx(chosen[c]))
+			var dy: float = float(md.ty(tile) - md.ty(chosen[c]))
 			if dx * dx + dy * dy < min_sep2:
 				ok = false
 				break
-		if not ok:
-			continue
-		_stamp(md, cfg, c, village_r, field_r)
-		placed.append(c)
+		if ok:
+			chosen.append(tile)
 
-	return placed.size()
+	return chosen
 
 
-## Junctions first, then crossings. A tile where three or more roads meet is a junction; a road
-## tile adjacent to a bridge or a ford is a crossing.
-static func _candidates(md: MapData, roads: Array, cfg: Config) -> PackedInt32Array:
-	var min_degree: int = cfg.i("settlements.min_junction_degree", 3)
-
-	# How many edges each road tile connects to. Two means a through road or a turn, three or more
-	# means the roads branch here. Read straight off the link mask, which counts road *connections*
-	# rather than road *neighbours* — two roads running side by side are adjacent without meeting.
-	var junctions := PackedInt32Array()
-	var crossings := PackedInt32Array()
-	for i2: int in md.n:
-		if not md.has_road(i2) or not md.is_passable(i2):
-			continue
-		if md.road_degree(i2) >= min_degree:
-			junctions.append(i2)
-			continue
-		for d2: int in 8:
-			var nb3: int = md.neighbour(i2, d2)
-			if nb3 < 0:
-				continue
-			var w: int = int(md.water[nb3])
-			if w == MapData.Water.BRIDGE or w == MapData.Water.FORD:
-				crossings.append(i2)
-				break
-
-	var out := PackedInt32Array()
-	out.append_array(junctions)
-	out.append_array(crossings)
-
-	# If a map has neither — two parallel roads and no crossing — fall back to the midpoint of the
-	# longest road, so every map still has somewhere to fight over.
-	if out.is_empty() and roads.size() > 0:
-		var longest: RoadBuilder.Road = roads[0]
-		for r: int in roads.size():
-			var road: RoadBuilder.Road = roads[r]
-			if road.length() > longest.length():
-				longest = road
-		if longest.length() > 0:
-			out.append(longest.tiles[longest.length() / 2])
-
-	return out
+## Stamp every chosen site. Runs after the road earthworks, and is why `RoadBuilder.resmooth` exists.
+static func stamp_all(md: MapData, cfg: Config, sites: PackedInt32Array) -> int:
+	var village_r: int = cfg.i("settlements.village_radius_tiles", 2)
+	var field_r: int = cfg.i("settlements.field_radius_tiles", 4)
+	for k: int in sites.size():
+		_stamp(md, cfg, sites[k], village_r, field_r)
+	return sites.size()
 
 
 ## A village footprint with a ring of fields around it, flattened to its own median height.
 ##
 ## The flattening is what makes a village read as built rather than draped: buildings sit on level
 ## ground, and the ground beside them is where the earth went.
-static func _stamp(md: MapData, cfg: Config, centre: int, village_r: int, field_r: int) -> void:
+static func _stamp(md: MapData, cfg: Config, center: int, village_r: int, field_r: int) -> void:
 	var size: int = md.size
-	var cx: int = md.tx(centre)
-	var cy: int = md.ty(centre)
+	var cx: int = md.tx(center)
+	var cy: int = md.ty(center)
 
 	# Median rather than mean: one deep river tile inside the footprint would drag a mean down and
 	# leave the village in a hole.

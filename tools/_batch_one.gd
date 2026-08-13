@@ -45,6 +45,8 @@ func _initialize() -> void:
 			"imbalance_pct": float(bal["worst_pct"]),
 			"escarpment_frac": float(m["escarpment_frac"]),
 			"passable_frac": float(m["passable_frac"]),
+			"river_crossings": int(m["river_crossings"]),
+			"river_spans_map": bool(m["river_spans_map"]),
 			"mean_abs_dl": float(m["mean_abs_dl"]),
 			"flat_edge_frac": float(m["flat_edge_frac"]),
 			"level_span": int(m["level_span"]),

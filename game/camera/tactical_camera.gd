@@ -24,9 +24,19 @@ var _target_focus: Vector3 = Vector3.ZERO
 var _distance: float = 420.0
 var _target_distance: float = 420.0
 var _yaw: float = 0.0
+## Yaw has a target too, for Q and E. A drag writes both and stays instant — an eased drag reads as
+## input lag — but a keyed step eases into place like the focus does.
+var _target_yaw: float = 0.0
 var _pitch: float = -46.0
 var _orbiting: bool = false
 var _edge_scroll_enabled: bool = true
+var _input_enabled: bool = true
+
+## Following an action. See `begin_follow`.
+var _following: bool = false
+var _edge_scroll_was: bool = true
+## What `_ease` actually uses. Normally `_focus_lerp`; `_follow_lerp` while following.
+var _active_focus_lerp: float = 6.0
 
 var _pan_speed: float
 var _fast_mult: float
@@ -44,6 +54,11 @@ var _focus_distance: float
 var _focus_lerp: float
 var _zoom_lerp: float
 var _focus_only_zooms_in: bool
+var _yaw_lerp: float
+var _orbit_step: float
+var _follow_enabled: bool
+var _follow_lerp: float
+var _follow_cancel_on_pan: bool
 
 
 func setup(config: Config, terrain: TerrainView) -> void:
@@ -66,10 +81,18 @@ func setup(config: Config, terrain: TerrainView) -> void:
 	_focus_lerp = cfg.f("camera.focus_lerp_rate", 6.0)
 	_zoom_lerp = cfg.f("camera.zoom_lerp_rate", 12.0)
 	_focus_only_zooms_in = cfg.b("camera.focus_only_zooms_in", true)
+	_yaw_lerp = cfg.f("camera.yaw_lerp_rate", 9.0)
+	_orbit_step = cfg.f("camera.orbit_step_deg", 45.0)
+	_follow_enabled = cfg.b("camera.follow_during_action", true)
+	_follow_lerp = cfg.f("camera.follow_lerp_rate", 10.0)
+	_follow_cancel_on_pan = cfg.b("camera.follow_cancel_on_pan", true)
+	_edge_scroll_enabled = cfg.b("camera.edge_scroll_enabled", true)
+	_active_focus_lerp = _focus_lerp
 
 	_distance = cfg.f("camera.start_height_m", 420.0)
 	_target_distance = _distance
 	_pitch = cfg.f("camera.start_pitch_deg", -46.0)
+	_target_yaw = _yaw
 
 	var extent: float = view.extent_m()
 	_target_focus = Vector3(extent * 0.5, 0.0, extent * 0.5)
@@ -86,6 +109,21 @@ func set_edge_scroll(enabled: bool) -> void:
 	_edge_scroll_enabled = enabled
 
 
+## Hand the screen over to another camera. Both cameras orbit on the right mouse button, so relying
+## on `_unhandled_input` dispatch order to decide which one reacts would work by accident; this says
+## it outright.
+func set_input_enabled(enabled: bool) -> void:
+	_input_enabled = enabled
+	# Handing the screen back mid-action must not switch edge scroll on underneath a follow that
+	# suppressed it — the player can drop into the gunner view and out again while a tank is still
+	# driving, and the cursor is no less likely to be at a screen edge on the way out than it was on
+	# the way in. `end_follow` restores it either way.
+	_edge_scroll_enabled = enabled and not _following
+	if not enabled and _orbiting:
+		_orbiting = false
+		Input.set_mouse_mode(Input.MOUSE_MODE_VISIBLE)
+
+
 ## Put the camera over a tile without changing the viewing angle.
 ##
 ## A positive `distance` also sets the zoom; -1 leaves it alone. With `camera.focus_only_zooms_in`
@@ -93,7 +131,7 @@ func set_edge_scroll(enabled: bool) -> void:
 ## the whole map but does not yank you back out when you had deliberately zoomed closer.
 ## `instant` skips the glide, which is what boot and a map regeneration want.
 func look_at_tile(tile: int, distance: float = -1.0, instant: bool = false) -> void:
-	_target_focus = view.tile_centre(tile)
+	_target_focus = view.tile_center(tile)
 	if distance > 0.0:
 		_target_distance = minf(_target_distance, distance) if _focus_only_zooms_in else distance
 	_clamp_target()
@@ -105,8 +143,8 @@ func look_at_tile(tile: int, distance: float = -1.0, instant: bool = false) -> v
 
 ## Explicitly take me to this tile, at the focus distance, whatever the zoom was. The F key is not
 ## a side effect of something else, so it overrides the only-zooms-in rule.
-func recentre_on(tile: int) -> void:
-	_target_focus = view.tile_centre(tile)
+func recenter_on(tile: int) -> void:
+	_target_focus = view.tile_center(tile)
 	_target_distance = _focus_distance
 	_clamp_target()
 
@@ -115,7 +153,70 @@ func focus_point() -> Vector3:
 	return _focus
 
 
+## Turn the camera one step round the compass. `dir` is +1 or -1.
+##
+## Snapped rather than continuous, because right-drag already gives continuous orbit and the thing
+## the mouse cannot do is land on a clean angle. The grid is eight-way, so multiples of 45 degrees
+## are what keep north-east pointing up-right and diagonal facings readable — docs/decisions/0022.
+##
+## The step goes to the next multiple **in the direction pressed**, not 45 degrees on from wherever
+## a drag happened to stop. `snappedf` at the end keeps a hundred presses from accumulating a
+## fraction of a degree.
+func orbit_step(dir: int) -> void:
+	if dir == 0 or _orbit_step <= 0.0:
+		return
+	var q: float = _target_yaw / _orbit_step
+	_target_yaw = (floorf(q) + 1.0) * _orbit_step if dir > 0 else (ceilf(q) - 1.0) * _orbit_step
+	_target_yaw = snappedf(_target_yaw, _orbit_step)
+
+
+## Take the camera along with an action, until `end_follow`.
+##
+## Edge scroll is suspended for the duration. The cursor is almost always near a screen edge right
+## after the click that gave the order, so the two would fight over the focus every frame — which
+## on screen reads as "following is broken" rather than as "edge scroll is winning".
+##
+## The follow uses a tighter lerp than the ordinary glide. At `focus_lerp_rate` the camera trails a
+## 26 m/s tank by about four meters, which is pleasant; at 3x playback the same rate trails thirteen
+## and reads as lag. Deliberately a second fixed rate rather than one scaled by the playback
+## multiplier — that would be animation timing feeding into the camera, which is the coupling
+## docs/decisions/0022 exists to remove.
+func begin_follow() -> void:
+	if not _follow_enabled:
+		return
+	_following = true
+	_edge_scroll_was = _edge_scroll_enabled
+	_edge_scroll_enabled = false
+	_active_focus_lerp = _follow_lerp
+
+
+func end_follow() -> void:
+	if not _following and _active_focus_lerp == _focus_lerp:
+		return
+	_following = false
+	_edge_scroll_enabled = _edge_scroll_was
+	_active_focus_lerp = _focus_lerp
+
+
+func is_following() -> bool:
+	return _following
+
+
+## Aim at an arbitrary world point. Goes through the same target/eased pair the tile focus uses, so
+## the camera trails the tank rather than being welded to it.
+##
+## A no-op unless a follow is running, which is what makes a push arriving after the player has
+## panned away harmless rather than a fight.
+func follow_world(point: Vector3) -> void:
+	if not _following:
+		return
+	_target_focus = point
+	_clamp_target()
+
+
 func _unhandled_input(event: InputEvent) -> void:
+	if not _input_enabled:
+		return
 	if event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
 		match mb.button_index:
@@ -135,13 +236,20 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	elif event is InputEventMouseMotion and _orbiting:
 		var mm := event as InputEventMouseMotion
+		# A drag writes the rendered yaw *and* its target. Easing a drag reads as input lag, and
+		# leaving the target behind would make the next Q or E snap back to wherever the drag
+		# started from.
 		_yaw -= mm.relative.x * _orbit_sens
+		_target_yaw = _yaw
 		_pitch = clampf(_pitch - mm.relative.y * _orbit_sens, _min_pitch, _max_pitch)
 		_apply()
 
 
 func _process(delta: float) -> void:
 	_ease(delta)
+
+	if not _input_enabled:
+		return
 
 	var move := Vector2.ZERO
 	if Input.is_key_pressed(KEY_W):
@@ -157,10 +265,23 @@ func _process(delta: float) -> void:
 	if Input.is_key_pressed(KEY_SHIFT):
 		speed *= _fast_mult
 
-	if _edge_scroll_enabled and not _orbiting:
+	# Explicit pan releases a follow — the player has asked to look somewhere else. Tested before
+	# edge scroll contributes anything, and edge scroll is suspended for the duration of a follow
+	# anyway, so this only ever fires on a real key. Orbit and zoom do not cancel: orbiting to watch
+	# a move from a chosen angle is the point, and zoom does not touch the focus at all.
+	if _following and _follow_cancel_on_pan and move != Vector2.ZERO:
+		end_follow()
+
+	# The window-focus gate matters: `get_mouse_position` is viewport-relative and passes the
+	# in-bounds test whether or not this window is the one being used, so without it an unfocused
+	# Hull Down scrolls whenever the cursor happens to rest over its edge.
+	if _edge_scroll_enabled and not _orbiting and get_window().has_focus():
 		var vp: Vector2 = get_viewport().get_visible_rect().size
 		var mouse: Vector2 = get_viewport().get_mouse_position()
 		if mouse.x >= 0.0 and mouse.y >= 0.0 and mouse.x < vp.x and mouse.y < vp.y:
+			# Dividing by `speed` here and multiplying the assembled vector by it below nets out to
+			# a flat `_edge_speed`, i.e. edge scroll deliberately ignores the Shift multiplier. It
+			# looks like an error and is not.
 			if mouse.x < _edge_margin:
 				move.x -= _edge_speed / speed
 			elif mouse.x > vp.x - _edge_margin:
@@ -189,19 +310,30 @@ func _process(delta: float) -> void:
 ## Ease the rendered focus and distance toward their targets. Frame-rate independent: the
 ## exponential form gives the same settling time whatever the frame took.
 func _ease(delta: float) -> void:
-	var kf: float = 1.0 - exp(-_focus_lerp * delta)
+	var kf: float = 1.0 - exp(-_active_focus_lerp * delta)
 	var kz: float = 1.0 - exp(-_zoom_lerp * delta)
+	var ky: float = 1.0 - exp(-_yaw_lerp * delta)
 	var next_focus: Vector3 = _focus.lerp(_target_focus, kf)
 	var next_distance: float = lerpf(_distance, _target_distance, kz)
 
+	# Plain `lerpf`, not `lerp_angle`, and `_yaw` is deliberately never wrapped. `sin` and `cos` in
+	# `_apply` do not care what range it is in, and wrapping is precisely what would introduce a
+	# 350-to-10 degree long-way-round on the next keyed step.
+	var next_yaw: float = lerpf(_yaw, _target_yaw, ky)
+
+	# The yaw term has to be in the early-out as well as in the easing. Without it a settled focus
+	# and distance return before the yaw is applied, and a 45 degree step freezes about 30 degrees
+	# in — the camera stops at an angle nobody asked for and stays there until something else moves.
 	if (
 		next_focus.distance_squared_to(_focus) < 1e-6
 		and absf(next_distance - _distance) < 1e-4
+		and absf(next_yaw - _yaw) < 1e-4
 	):
 		return
 
 	_focus = next_focus
 	_distance = next_distance
+	_yaw = next_yaw
 	_apply()
 
 

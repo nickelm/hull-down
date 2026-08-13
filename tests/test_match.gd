@@ -1,4 +1,4 @@
-extends TestCase
+﻿extends TestCase
 
 ## The turn structure: two units a side, side-alternating, Tab cycling, End Turn.
 ## docs/decisions/0012.
@@ -42,15 +42,15 @@ func _match(per_side: int = 2, sides: int = 2) -> MatchState:
 func test_end_turn_hands_over_to_the_other_side() -> void:
 	var m: MatchState = _match()
 	assert_eq(m.active_side, 1, "the match starts on side 1")
-	m.end_turn()
+	m.end_turn(cfg)
 	assert_eq(m.active_side, 2, "end turn did not hand over")
 	assert_eq(m.turn, 1, "the turn number advances on the wrap, not on every hand-over")
 
 
 func test_the_turn_number_advances_once_every_side_has_gone() -> void:
 	var m: MatchState = _match()
-	m.end_turn()
-	m.end_turn()
+	m.end_turn(cfg)
+	m.end_turn(cfg)
 	assert_eq(m.active_side, 1, "two hand-overs should come back round to side 1")
 	assert_eq(m.turn, 2, "the turn number did not advance on the wrap")
 
@@ -61,7 +61,7 @@ func test_end_turn_refills_movement_points() -> void:
 		u.mp_left = 3
 		u.activated = true
 
-	m.end_turn()
+	m.end_turn(cfg)
 	for k: int in m.units.size():
 		var u2: UnitState = m.units[k]
 		if u2.side == m.active_side:
@@ -81,7 +81,7 @@ func test_end_turn_skips_a_side_with_no_units() -> void:
 		m.add_unit(u)
 	m.selected = 0
 
-	m.end_turn()
+	m.end_turn(cfg)
 	assert_eq(m.active_side, 1, "with only side 1 populated the turn should come straight back")
 	assert_eq(m.turn, 2, "the turn number did not advance")
 	assert_eq(m.units[0].mp_left, m.units[0].mp_max, "movement points were not restored")
@@ -91,7 +91,7 @@ func test_begin_turn_clears_activation() -> void:
 	var u := UnitState.new()
 	u.activated = true
 	u.mp_left = 0
-	u.begin_turn()
+	u.begin_turn(cfg)
 	assert_false(u.activated, "begin_turn left the unit marked as having acted")
 	assert_eq(u.mp_left, u.mp_max, "begin_turn did not restore movement points")
 
@@ -123,7 +123,7 @@ func test_cycling_prefers_units_that_have_not_acted() -> void:
 	assert_eq(m.cycle(1), side[2], "cycling should have skipped the unit that already acted")
 
 
-## Once everyone is done, Tab still has to move — a key that does nothing reads as broken rather
+## Once everyone is done, Tab still has to move â€” a key that does nothing reads as broken rather
 ## than as a finished turn.
 func test_cycling_still_moves_when_every_unit_has_acted() -> void:
 	var m: MatchState = _match()
@@ -171,13 +171,18 @@ func test_unit_at_finds_the_occupant() -> void:
 
 # --- deployment --------------------------------------------------------------------------------
 
-func test_deployment_puts_two_units_on_each_side() -> void:
+## Read from the config rather than written down here. This test asserted a literal 2 a side and
+## broke the day the roster went to three — which taught it nothing, because the number is a tunable
+## and the claim is "each side gets what `turn.units_per_side` says", not "each side gets two".
+func test_deployment_puts_the_configured_force_on_each_side() -> void:
 	var md: MapData = _map()
 	var m: MatchState = Deployment.deploy(md, cfg)
+	var per_side: int = cfg.i("turn.units_per_side", 2)
+	var sides: int = cfg.i("turn.sides", 2)
 
-	assert_eq(m.units.size(), 4, "two units a side on a two-side match")
-	assert_eq(m.side_units(1).size(), 2, "side 1")
-	assert_eq(m.side_units(2).size(), 2, "side 2")
+	assert_eq(m.units.size(), per_side * sides, "the whole board is not sides x units_per_side")
+	assert_eq(m.side_units(1).size(), per_side, "side 1")
+	assert_eq(m.side_units(2).size(), per_side, "side 2")
 	assert_ne(m.selected, -1, "deployment left nothing selected")
 
 	for k: int in m.units.size():
@@ -213,7 +218,7 @@ func test_deployment_is_deterministic() -> void:
 		assert_eq(second.units[k].facing, first.units[k].facing, "unit %d turned between runs" % k)
 
 
-## A zone that is entirely impassable must not deadlock deployment — falling back to any passable
+## A zone that is entirely impassable must not deadlock deployment â€” falling back to any passable
 ## tile is worse than intended and much better than a match with no units in it.
 func test_deployment_falls_back_when_a_zone_is_unusable() -> void:
 	var md: MapData = _map()
@@ -222,7 +227,134 @@ func test_deployment_falls_back_when_a_zone_is_unusable() -> void:
 			md.move_cost[i] = -10
 
 	var m: MatchState = Deployment.deploy(md, cfg)
-	assert_eq(m.side_units(2).size(), 2, "side 2 was not deployed at all")
+	assert_eq(m.side_units(2).size(), cfg.i("turn.units_per_side", 2),
+		"side 2 was not deployed at all")
 	for k: int in m.side_units(2).size():
 		var t: int = m.units[m.side_units(2)[k]].tile
 		assert_true(md.is_passable(t), "the fallback still put a unit on impassable ground")
+
+
+# --- action points -------------------------------------------------------------------------------
+
+## docs/decisions/0014. The near band of the movement overlay is drawn at one action's worth, and
+## the whole point is that it is a strict subset of what two actions reach.
+func test_one_action_buys_a_fraction_of_the_turn() -> void:
+	var u := UnitState.new()
+	u.mp_max = 220
+	u.mp_left = 220
+	var per_action: int = u.action_mp(cfg)
+
+	assert_gt(float(per_action), 0.0, "an action must buy some movement")
+	assert_lt(float(per_action), float(u.mp_max), "one action cannot buy the whole turn")
+	assert_eq(per_action * cfg.i("movement.actions_per_turn", 2), u.mp_max,
+		"the actions should divide the turn's movement points exactly")
+
+
+## A unit is not given more movement for having spent some: once under one action's worth remains,
+## the near band is the whole of what is left and the two regions collapse.
+##
+## These call `near_mp` rather than recomputing a formula inline. They used to work out
+## `mini(action_mp, mp_left)` for themselves, which is how they went on passing unchanged when the
+## near band stopped being that â€” a test that reimplements the thing it is testing agrees with
+## itself no matter what the game does.
+func test_the_near_band_never_exceeds_what_is_left() -> void:
+	var u := UnitState.new()
+	u.mp_max = 220
+	u.mp_left = 40
+	assert_lt(float(u.mp_left), float(u.action_mp(cfg)), "fixture should leave under one action")
+	assert_eq(u.near_mp(cfg), u.mp_left,
+		"the near band must clamp to the movement actually remaining")
+
+
+func test_action_budget_is_restored_with_the_turn() -> void:
+	var u := UnitState.new()
+	u.mp_max = 220
+	u.mp_left = 5
+	u.begin_turn(cfg)
+	assert_eq(u.near_mp(cfg), u.action_mp(cfg),
+		"after begin_turn a full action's worth should be available again")
+
+
+## Feedback from the second playtest, and the reason for docs/decisions/0021: a tank that has driven
+## four tiles of a five-tile action has *one* tile of that action left, not five. Drawing the near
+## band at a fresh action's worth measured from where it now stands hands back the movement it just
+## spent, so a short move looks free â€” and a misclick appears to cost nothing until the action point
+## is gone.
+func test_a_part_spent_action_shows_only_its_remainder() -> void:
+	var u := UnitState.new()
+	u.mp_max = 220
+	u.mp_left = 220
+	var per: int = u.action_mp(cfg)
+
+	u.mp_left -= 60
+	assert_eq(u.near_mp(cfg), per - 60,
+		"the near band should be what is left of the action already begun, not a whole new one")
+	assert_lt(float(u.near_mp(cfg)), float(per), "it must be less than a full action")
+
+
+func test_a_whole_action_spent_leaves_the_next_one_whole() -> void:
+	var u := UnitState.new()
+	u.mp_max = 220
+	var per: int = u.action_mp(cfg)
+	u.mp_left = u.mp_max - per
+
+	assert_eq(u.near_mp(cfg), per,
+		"spending exactly one action should leave the second one entirely available")
+
+
+## The other half of the same feedback: with under one action left in the turn there is only one
+## answer to give, so the near band is everything and the overlay draws a single region.
+func test_the_bands_collapse_when_under_one_action_remains() -> void:
+	var u := UnitState.new()
+	u.mp_max = 220
+	u.mp_left = 220 - 160
+
+	assert_eq(u.near_mp(cfg), u.mp_left,
+		"with under one action left the two bands must coincide")
+
+
+## Swept rather than sampled, because the interesting failures are at the boundaries: exactly on an
+## action edge, at zero, and on a unit whose allowance does not divide evenly (the heavy tank's 150
+## against two actions).
+func test_near_mp_holds_its_invariants_at_every_value() -> void:
+	for allowance: int in [220, 300, 150, 7]:
+		var u := UnitState.new()
+		u.mp_max = allowance
+		var per: int = u.action_mp(cfg)
+		for left: int in range(allowance, -1, -1):
+			u.mp_left = left
+			var near: int = u.near_mp(cfg)
+			assert_le(float(near), float(left),
+				"mp %d/%d: near band %d exceeds the movement left" % [left, allowance, near])
+			assert_le(float(near), float(per),
+				"mp %d/%d: near band %d exceeds one action" % [left, allowance, near])
+			assert_ge(float(near), 0.0, "mp %d/%d: negative near band" % [left, allowance])
+		u.mp_left = 0
+		assert_eq(u.near_mp(cfg), 0, "a spent unit has no near band")
+
+
+## The price of being allowed to finish a part-spent action later. Without this a unit banks slivers
+## of movement across actions and the budget stops being two actions at all.
+func test_a_full_action_forfeits_the_unused_fraction() -> void:
+	var u := UnitState.new()
+	u.mp_max = 220
+	var per: int = u.action_mp(cfg)
+	u.mp_left = 220 - 60
+
+	u.commit_action(cfg)
+	assert_eq(u.mp_left, u.mp_max - per,
+		"committing a whole action should forfeit the unspent part of the one in progress")
+	assert_eq(u.near_mp(cfg), per, "and leave the next action whole")
+
+
+## Nothing to split when there is only one action, so the overlay is always a single region.
+func test_one_action_per_turn_never_splits_the_bands() -> void:
+	var single := Config.from_dicts(
+		{"movement": {"actions_per_turn": 1, "base_ortho": 10}}, {}, {}
+	)
+	var u := UnitState.new()
+	u.mp_max = 220
+	for left: int in [220, 130, 40, 0]:
+		u.mp_left = left
+		assert_eq(u.near_mp(single), left,
+			"with one action per turn the near band is always everything that is left")

@@ -12,7 +12,7 @@
     "sea_floor_m": 0.0
   },
 
-  "_relief_note": "Octave count and h_exp are the escarpment dial, not target_relief_m. With base_freq 0.0016 and lacunarity ~2, octave k has a wavelength of about 625/2^k metres — so octaves 6 and 7 sit at 18 and 9 m, right at the ten-metre tile scale, and their slope contribution is what decides how many tile edges come out impassable. Seven octaves put half the map behind a cliff no matter how far the total relief was scaled down.",
+  "_relief_note": "Octave count and h_exp are the escarpment dial, not target_relief_m. With base_freq 0.0016 and lacunarity ~2, octave k has a wavelength of about 625/2^k meters — so octaves 6 and 7 sit at 18 and 9 m, right at the ten-meter tile scale, and their slope contribution is what decides how many tile edges come out impassable. Seven octaves put half the map behind a cliff no matter how far the total relief was scaled down.",
   "relief": {
     "octaves": 5,
     "base_freq": 0.0016,
@@ -32,7 +32,7 @@
   },
 
   "erosion": {
-    "_capacity_note": "capacity_k is dimensional: heights here are metres over ~200 m of relief, not the normalized 0..1 field the textbook droplet model assumes. A value sized for 0..1 lets one droplet level its entire step, which digs a pit, traps the next droplet in it, and stipples the uplands instead of carving channels. Keep capacity_k * typical_speed * erode_speed at a few centimetres per step.",
+    "_capacity_note": "capacity_k is dimensional: heights here are meters over ~200 m of relief, not the normalized 0..1 field the textbook droplet model assumes. A value sized for 0..1 lets one droplet level its entire step, which digs a pit, traps the next droplet in it, and stipples the uplands instead of carving channels. Keep capacity_k * typical_speed * erode_speed at a few centimeters per step.",
     "hydraulic": {
       "droplet_count": 500000,
       "max_lifetime": 64,
@@ -72,7 +72,7 @@
     "min_bed_slope": 0.0012,
     "water_fill_fraction": 0.45,
     "stream_tile_min_frac": 0.25,
-    "_ford_note": "ford_max_depth_m and ford_max_bank are the profile a crossing is eased to, not a filter on which cells qualify — rivers are carved metres deep, so nothing passes a sub-metre gate naturally. ford_target crossings are chosen by score and eased as needed; min_fords is the floor the acceptance check asserts.",
+    "_ford_note": "ford_max_depth_m and ford_max_bank are the profile a crossing is eased to, not a filter on which cells qualify — rivers are carved meters deep, so nothing passes a sub-meter gate naturally. ford_target crossings are chosen by score and eased as needed; min_fords is the floor the acceptance check asserts.",
     "ford_max_depth_m": 0.9,
     "ford_max_bank": 0.16,
     "ford_target": 3,
@@ -81,11 +81,15 @@
     "ford_flatten_radius_cells": 4
   },
 
+  "_repair_ops_note": "The repair pass prices three ways of opening ground against each other in one search: cut an escarpment, clear a stand of heavy forest, or ford a river. The penalties are deliberately an order apart, so the search prefers going the long way round to cutting, cutting to clearing, and clearing to fording — earthwork is routine, felling a forest is a decision, and putting a crossing where the hydrology did not is a last resort. max_repair_fords caps the last one outright: without it a pathological seed carves a canal of fords down the whole river rather than crossing it once.",
   "traversal": {
     "normal_max_dl": 2,
     "rough_max_dl": 4,
     "rough_extra_cost": 8,
     "earthwork_penalty": 40,
+    "clear_penalty": 120,
+    "ford_penalty": 600,
+    "max_repair_fords": 6,
     "repair_max_passes": 8
   },
 
@@ -96,7 +100,9 @@
     "depth_frac": 0.1,
     "edge_margin_frac": 0.02,
     "objective_count": 3,
-    "objective_min_separation_frac": 0.2
+    "objective_min_separation_frac": 0.2,
+    "_clearance_note": "Keep-out band around the deployment zones, as a fraction of the map's edge. An objective a defender can ring while standing inside the attacker's deployment-time spotting range is a degenerate mission on any map (2f). Halved automatically when a cramped map cannot honor it.",
+    "objective_zone_clearance_frac": 0.15
   },
 
   "_terrain_typing_note": "Moisture and elevation are percentiles of the map's own distribution, so a threshold of 0.62 reads as 'the wetter 38%' and means the same thing on every seed. Slope is a real gradient (rise over run).",
@@ -112,11 +118,17 @@
     "woods_patch_freq": 0.0033,
     "woods_patch_bias": 0.10,
     "scrub_moisture": 0.50,
-    "smooth_passes": 3
+    "smooth_passes": 3,
+    "woods_heavy_frac": 0.18,
+    "woods_light_frac": 0.45,
+    "woods_tier_freq": 0.006
   },
 
+  "_roads_note": "The network is a minimum spanning tree over the village sites and the map-edge portals, plus redundant_edges extra links so it has a loop rather than being a pure hierarchy. reuse_discount is what makes tree edges converge onto shared trunks instead of running as separate parallel lanes; it is also a lower bound the A* heuristic scale has to respect, so route() passes base * reuse_discount rather than base.",
   "roads": {
-    "count": 2,
+    "portal_count": 4,
+    "redundant_edges": 1,
+    "reuse_discount": 0.25,
     "base_cost": 100.0,
     "slope_k": 55.0,
     "water_penalty": 4000.0,
@@ -128,15 +140,13 @@
     "cut_fill_passes": 400,
     "resmooth_max_passes": 8,
     "bezier_samples": 8,
-    "width_m": 4.5,
-    "min_endpoint_separation_frac": 0.3
+    "width_m": 4.5
   },
 
   "settlements": {
-    "min_junction_degree": 3,
+    "site_count": 4,
     "village_radius_tiles": 2,
     "field_radius_tiles": 4,
-    "max_villages": 4,
     "min_separation_tiles": 25
   },
 
@@ -145,6 +155,8 @@
     "base_diag": 14,
     "turn_cost_per_45": 3,
     "reverse_mult": 1.6,
+    "_actions_note": "A turn's movement points are two actions' worth, so one action buys mp/actions_per_turn. This is what the movement overlay's near and far regions divide on — see docs/decisions/0014. Total movement per turn is unchanged.",
+    "actions_per_turn": 2,
     "default_mp": 220,
     "max_path_cost": 12000
   },
@@ -157,12 +169,106 @@
     "min_range_m": 5.0
   },
 
+  "_spotting_note": "Spotting is deterministic — there is no roll (docs/design/rules.md 3.3, docs/decisions/0024). A target is seen when some living unit of the observing side has line of sight to it and the range is inside that observer's effective spotting range. Effective range is the observer's optics multiplied by three modifiers, and all three are properties of the TARGET: the concealment of the ground it stands on (data/terrain.json, per movement class), how much it moved this turn, and how exposed it is to that observer. Knowledge is side-level and asymmetric. Being deterministic is what lets the move preview say where you will be seen before you commit, which a roll could not.",
+  "_spotting_movement_note": "The movement modifier ramps with movement points actually spent rather than switching on a moved/did-not flag: a tank that crept one tile is nearly as quiet as one that never moved, and one that sprinted its whole allowance is loud. moved_mult = 1 + (moved_max_mult - 1) * (mp_moved / mp_max).",
+  "_spotting_exposure_note": "The exposure multipliers must stay at or below 1.0. Spotting prunes a pair without casting a ray when the distance already exceeds the pre-exposure range, and that early-out is only sound while exposure can shrink a range and never grow one. tests/test_config pins it.",
+  "spotting": {
+    "point_blank_m": 60.0,
+    "exposed_mult": 1.0,
+    "hull_down_mult": 0.55,
+    "moved_max_mult": 1.60,
+    "stationary_mult": 1.0,
+    "ghost_turns": 2
+  },
+
+  "_sound_note": "The second knowledge layer, beside ghosts and never merged with them — docs/decisions/0033 and 0037. Firing and noisy movement put a contact on the board for every OTHER side that has a living unit within the source's radius. Line of sight is not consulted at any point; a radius is the whole test. The contact is stored at a DELIBERATELY WRONG tile and carries no identity, which is what separates it from a sighting: a ghost is a stale fact, a sound contact is a fresh guess.",
+  "_sound_error_note": "error_m = min(error_base_m + error_per_100m * d/100, error_max_m), where d is the distance from the noise to the nearest LIVING unit of the hearing side — the closer your own troops are, the better they place it. The displacement bearing is a hash of (true tile, hearing side, turn, source) rather than an RNG draw, so the sound layer advances no stream and can never reshuffle a combat roll, and a replay reproduces the same wrong position by construction. The marker is drawn at this radius, so its size IS the uncertainty.",
+  "_sound_movement_note": "A move makes a noise worth hearing when it spent at least noisy_mp_frac of the unit's allowance, and it generates exactly ONE contact, at the tile the move actually finished on. One per step would draw a legible trail of the exact route driven, which is far more than a sound gives away. A side that already SEES the noisemaker gets nothing — a guess about something you are looking at is clutter. A side holding only a ghost of it still gets one; the ghost is stale and the noise is not.",
+  "sound": {
+    "fire_radius_m": 1200.0,
+    "move_radius_m": 500.0,
+    "noisy_mp_frac": 0.35,
+    "error_base_m": 20.0,
+    "error_per_100m": 18.0,
+    "error_max_m": 200.0,
+    "turns": 2
+  },
+  "_sound_turns_note": "Ticks, not turns, and the arithmetic is deliberately the same as spotting.ghost_turns: a contact is aged once as its own side takes over, and 2 therefore means it is on the board for exactly one full turn of that side's. Charged to the hearing side rather than on every hand-over, so 'one turn' is a length the player can plan around instead of a function of how many sides are in the match. At 1 it would be aged away by the very hand-over that gives that side its turn, and nobody would ever see it.",
+
+  "_combat_note": "Two rolls in order, and no null results — docs/decisions/0004 and 0029. To-hit is a base chance scaled by range, exposure, the firer's movement, elevation and crew state, then clamped. Penetration is the round's penetration at range against the plate actually struck. Every draw comes from Rng.stream(master_seed, COMBAT) except the critical-component draw, which comes from CRITS — so adding a shred roll can never reshuffle which component breaks (docs/decisions/0005).",
+  "_combat_pen_note": "ratio = penetration_at_range / plate_now. At or below no_pen_ratio nothing gets through; at or above certain_pen_ratio everything does; between them the chance rises linearly. The band is deliberately wide, so 'nearly enough' is a real and frequent outcome the player can feel rather than a cliff.",
+  "_combat_no_null_note": "A hit that does not penetrate either shreds the plate or shakes the crew. shred_share is the probability of shred; the remainder is a shake. Shred is permanent and monotone; a shake wears off, and it is what makes a light tank's fast small gun worth firing at a heavy. A penetrating hit destroys the tank unless it rolls a component critical instead — iteration 2 has exactly two components, and critical_immobilised_share splits between them.",
+  "_combat_wreck_note": "A destroyed tank stays where it died. It blocks the tile outright and adds this much line-of-sight-opaque cover through MapData.blocker_dyn — deliberately between the hull line (1.4) and the turret line (2.6), so a wreck conceals a hull and leaves a turret exactly as light woods does. A burning tank is a hull-down position, and that is a rule rather than an accident. docs/decisions/0031.",
+  "_combat_overwatch_note": "Overwatch costs the unit its whole turn (docs/decisions/0003) and is tested once per tile a mover enters, after the spotting recheck for that tile and never before it — a watcher cannot shoot at something it has not seen. It fires overwatch_shots times a turn, only inside the arc the turret is laid along, and traversing the gun re-lays the watch along with it rather than cancelling it. docs/decisions/0030 and 0035.",
+  "combat": {
+    "base_hit_chance": 0.95,
+    "range_falloff_per_100m": 0.045,
+    "min_hit_chance": 0.05,
+    "max_hit_chance": 0.95,
+    "point_blank_m": 100.0,
+
+    "exposed_hit_mult": 1.0,
+    "hull_down_hit_mult": 0.55,
+    "firer_moved_mult": 0.70,
+    "target_moved_mult": 0.85,
+    "shaken_hit_mult": 0.75,
+    "gun_damaged_hit_mult": 0.50,
+    "overwatch_hit_mult": 0.80,
+
+    "elevation_bonus_per_level": 0.010,
+    "max_elevation_bonus": 0.10,
+
+    "no_pen_ratio": 0.80,
+    "certain_pen_ratio": 1.30,
+    "pen_falloff_per_100m": 0.025,
+    "pen_min_fraction": 0.35,
+
+    "shred_share": 0.65,
+    "shred_min_mm": 1,
+    "shred_ratio_scale": 1.0,
+    "shaken_turns": 1,
+
+    "critical_chance": 0.35,
+    "critical_immobilised_share": 0.50,
+
+    "default_ammo": 12,
+    "shots_end_the_turn": true,
+    "turret_arc_steps": 3,
+    "wreck_blocker_h_m": 2.0,
+
+    "overwatch_shots": 1,
+    "_overwatch_arc_note": "One 45-degree step either side of the laid bearing — a 90-degree cone. Deliberately much tighter than turret_arc_steps: a watching gunner is looking down a lane, not sweeping the horizon. At two steps the cone is 180 degrees, one watcher covers half the approach, and choosing *where* to lay the ambush stops being a decision at all.",
+    "overwatch_arc_steps": 1,
+    "overwatch_interrupts_move": true
+  },
+
+  "_entrenchment_note": "2f, docs/decisions/0041. Applied at deployment only, cleared permanently by the first STEP or TURN the unit makes. An entrenched tank counts as hull down to every eye and gun regardless of terrain (the clamp lives in Spotting, the one seam exposure passes through), and its concealment is multiplied by this on top of the ground's own. Must stay at or below 1.0 — the spotting early-out prunes on pre-exposure range and is only sound while modifiers shrink ranges; tests/test_config pins it.",
+  "entrenchment": {
+    "concealment_mult": 0.5
+  },
+
+  "_victory_note": "Hold objectives to win — docs/design/rules.md 6. The objectives are placed at generation time and every deployment zone can reach every one of them, so this consumes md.objectives rather than choosing anything.",
+  "_victory_grading_note": "2e-iii. Objectives sit on generator features and carry values: a village outweighs a bridge outweighs a bare crest, because the values follow how contested the ground is. When the match ends — outright win, annihilation, or turn_limit expiring — each side is graded on margin: (points held x grade_vp_weight + kills x grade_kill_weight), own minus enemy's. At or past grade_decisive the outcome is decisive, past grade_marginal it is marginal, inside the band it is a draw. An outright winner is clamped to at least a marginal victory. A scenario may override turn_limit (2f).",
+  "victory": {
+    "capture_radius_tiles": 1,
+    "hold_turns": 2,
+    "objectives_to_win": 2,
+    "turn_limit": 24,
+    "value_village": 3,
+    "value_bridge": 2,
+    "value_crest": 1,
+    "grade_vp_weight": 2.0,
+    "grade_kill_weight": 1.0,
+    "grade_decisive": 8.0,
+    "grade_marginal": 2.0
+  },
+
   "_look_note": "Presentation only. Nothing in sim/ reads this section.",
   "look": {
-    "colour_jitter": 0.02,
+    "color_jitter": 0.02,
     "grid_strength": 0.16,
-    "tank_colour": "#4a5240",
-    "tank_colour_side2": "#6b453d",
+    "tank_color": "#4a5240",
+    "tank_color_side2": "#6b453d",
     "road_lift_m": 0.14,
     "_light_note": "Ambient is deliberately low and the sun low-ish in the sky. Flat shading carries all the relief information in the difference between face brightnesses, so strong ambient fills the shadows and the terrain reads as a flat sheet. Fog is a depth cue over 2 km, not weather — at 0.0007 it whited out the whole map.",
     "sun_azimuth_deg": 305.0,
@@ -183,8 +289,54 @@
       "button_gap_px": 8,
       "button_min_w_px": 104,
       "button_min_h_px": 30,
-      "text_colour": "#c7d1da",
-      "ready_colour": "#8ce39a"
+      "text_color": "#c7d1da",
+      "ready_color": "#8ce39a",
+
+      "_bar_note": "The bottom-center action toolbar. Move and fire stay click-driven on the board; the bar carries turret traverse and overwatch, plus the hint line that says what the next click will do.",
+      "bar": {
+        "padding_px": 8,
+        "button_gap_px": 8,
+        "button_min_w_px": 96,
+        "hint_color": "#8b95a0",
+        "aim_color": "#ffd27a"
+      },
+
+      "_log_note": "The event ticker above the action bar. Lines hold, fade and go — anything worth keeping lives in a panel, not here. Colors are categories, not sides: 'damage' is bad news for the viewer, 'good' is bad news for the enemy.",
+      "log": {
+        "max_lines": 6,
+        "hold_seconds": 6.0,
+        "fade_seconds": 1.5,
+        "gap_px": 2,
+        "info_color": "#c7d1da",
+        "warn_color": "#e8c06a",
+        "contact_color": "#ffb24d",
+        "damage_color": "#e8795f",
+        "kill_color": "#ff6b52",
+        "good_color": "#8ce39a",
+        "sound_color": "#c98fe0"
+      }
+    },
+
+    "_menu_note": "The start menu — docs/decisions/0043. One CanvasLayer over the board, no scene switch. It borrows the HUD's reference_height and max_scale for font scaling so the two surfaces agree about what a big window means.",
+    "menu": {
+      "font_size": 16,
+      "title_font_size": 34,
+      "button_min_w_px": 260,
+      "button_min_h_px": 36,
+      "gap_px": 10,
+      "scrim_color": "#0a0d11d1",
+      "text_color": "#c7d1da",
+      "title_color": "#e6edf3"
+    },
+
+    "_objectives_note": "The flags — docs/decisions/0040 and 0044. Possession is public: the tint is ground truth for both sides. Billboarded fixed-size sprites like the selection arrow, drawn through terrain so a flag is findable behind the ridge being argued about.",
+    "objectives": {
+      "flag_px": 22.0,
+      "lift_m": 2.0,
+      "alpha": 0.95,
+      "neutral_color": "#cfd3cc",
+      "side1_color": "#8fc177",
+      "side2_color": "#d1705e"
     },
 
     "_scatter_note": "Tree height is read from terrain.json's woods blocker_h and building height from village blocker_h — never typed here. The LOS model asserts 8 m of cover on a woods tile, and the player has to be able to see the thing that is doing the blocking. Scale jitter is cosmetic; occlusion stays flat and per tile.",
@@ -196,16 +348,108 @@
       "scale_jitter": 0.10,
       "tree_shadows": false,
       "visible_range_m": 900.0,
-      "trunk_colour": "#4a3b2c",
-      "canopy_colour": "#33452a",
-      "building_colour": "#9a8b7c",
-      "roof_colour": "#6e4f42",
+      "trunk_color": "#4a3b2c",
+      "canopy_color": "#33452a",
+      "building_color": "#9a8b7c",
+      "roof_color": "#6e4f42",
       "building_w_m": 6.0,
       "building_d_m": 7.0
+    },
+
+    "_marker_note": "The over-tank marker — docs/decisions/0023. Both sprites are fixed_size, so they sit on ONE world anchor and are separated by Sprite3D.offset in texture pixels: a world-space gap between them would shrink with distance and they would overlap at 900 m. The arrow draws with depth testing off so a selected unit stays findable behind a ridge; the bar does not.",
+    "marker": {
+      "anchor_height_m": 5.6,
+      "arrow_px": 16.0,
+      "arrow_offset_px": 12.0,
+      "arrow_bob_m": 0.35,
+      "arrow_bob_hz": 0.7,
+      "arrow_color": "#ffe9a8",
+      "arrow_color_side2": "#ffb2a0",
+      "bar_width_px": 34.0,
+      "bar_thickness_px": 4.0,
+      "bar_offset_px": 0.0,
+      "bar_back_color": "#1a1c1f",
+      "mp_color": "#ffb43c",
+      "acted_color": "#6b6f74"
+    },
+
+    "_roster_note": "The force list down the left edge — docs/decisions/0034. It shares the card's panel and text colors deliberately: they are two views of the same information and a second palette would say they were not. Only the width, the row height and the per-state tints are its own. This was two separate 'roster' objects until 2d; a duplicate key in JSON is not an error, the later one simply wins, so width_px silently read 210 and selected_color silently fell back to a default nobody had chosen. sound_color tints the sound-contact count line, which is a count and not rows — a sound contact has no identity to put in a row (0033).",
+    "roster": {
+      "width_px": 210,
+      "row_height_px": 22,
+      "selected_color": "#fff0d2",
+      "seen_color": "#c7d1da",
+      "ghost_color": "#8b95a0",
+      "sound_color": "#c98fe0",
+      "unknown_color": "#4a5058"
+    },
+
+    "_contact_note": "How the four ViewState kinds are drawn — docs/decisions/0034. HIDDEN draws nothing at all, so it has no entry here and cannot acquire one. A ghost is the same silhouette at reduced alpha because a remembered tank IS a tank; a sound contact never will be, and gets its own symbol language (0033). ghost_min_alpha is what a ghost fades TO on its last turn rather than to nothing: a marker that reaches zero alpha is one the player stops trusting a turn before it actually expires.",
+    "contact": {
+      "ghost_color": "#5c6470",
+      "ghost_alpha": 0.55,
+      "ghost_min_alpha": 0.18,
+      "wreck_color": "#2b2724",
+      "wreck_sink_m": 0.35,
+      "wreck_turret_skew_deg": 28.0
+    },
+
+    "_path_note": "Preview decoration, 3D geometry rather than overlay bands — docs/decisions/0023. The route is a mitred ribbon built the way a road is, so it follows tile centers, cuts no corners on a diagonal, and rides over a terrace lip instead of sinking into it. It changes color where the action in progress runs out, which is the same boundary the reachable ring draws, said along the way you would actually take. line_lift_m sits above look.road_lift_m so the route reads over a road it happens to follow. The two figures are numerals because costs run 10 to 33 mp a tile and nothing readable counts to 24.",
+    "path": {
+      "line_width_m": 1.6,
+      "line_lift_m": 0.22,
+      "line_color": "#8fe8f5",
+      "line_far_color": "#ffb43c",
+      "label_px": 15.0,
+      "label_height_m": 4.6,
+      "label_color": "#fff0d2",
+      "break_label_color": "#e0a45c",
+      "arrow_length_m": 7.0,
+      "arrow_color": "#fff0d2"
+    },
+
+    "_card_note": "Pinned to the top-right corner, because the camera spans 25 m to 1400 m over terraced flat-shaded ground and world-anchored text is unreadable at both ends of that — docs/decisions/0023. Rows iteration 2 fills in are drawn now with `placeholder` in `pending_color`, so the layout does not move when a field becomes real.",
+    "card": {
+      "width_px": 258,
+      "padding_px": 10,
+      "row_gap_px": 2,
+      "placeholder": "—",
+      "panel_color": "#12151a",
+      "panel_alpha": 0.74,
+      "label_color": "#8b95a0",
+      "value_color": "#c7d1da",
+      "heading_color": "#ffb43c",
+      "pending_color": "#5f666d",
+      "damaged_color": "#e0704c"
+    },
+
+    "_ghost_note": "A ghost is a contact the side has lost — last known position, decaying over spotting.ghost_turns. Drawn dimmer than a live unit and dimmer again as it goes stale, because the marker's job is to say 'it was here' and never to be mistaken for 'it is here'. Sound contacts (iteration 2.5) get their own block beside this one rather than another alpha on this one; they are a different kind of information, not a fainter version of the same kind.",
+    "ghost": {
+      "color": "#8b95a0",
+      "alpha_fresh": 0.55,
+      "alpha_stale": 0.25,
+      "marker_px": 22.0
+    },
+
+    "_sound_look_note": "The sound layer's own symbol language — docs/decisions/0033 and 0037. A ripple, never a silhouette and never a dimmed ghost: the moment a sound contact looks like a fainter ghost, players read it as a ghost with a rendering bug, aim at it, and stop trusting the whole layer. Drawn flat on the ground at the DIAMETER of the positional error, so a marker near your own lines is small and tight and one far away is large and vague. The size is the information. A ripple rather than a wedge because a wedge implies a bearing and this layer stores none. The violet is deliberately unclaimed by amber (movement, overwatch), cyan (route), red (damage) or the ghost gray. fire and move are one hue at two saturations, which is the deliberate opposite of the near/far movement bands: those are two different questions and split by hue, whereas a gun and an engine are two answers to the same one and should read as one layer.",
+    "sound": {
+      "fire_color": "#d78be8",
+      "move_color": "#9a7fc4",
+      "alpha": 0.40,
+      "ring_count": 2,
+      "min_radius_m": 15.0,
+      "lift_m": 0.20
+    },
+
+    "watch": {
+      "cone_color": "#ffb43c",
+      "cone_length_m": 220.0,
+      "cone_alpha": 0.18
     }
   },
 
-  "_overlay_note": "Overlays are drawn as region outlines, not as a tint over the ground. A flat tint recolours the terrain, so the old light-blue movement range read as water and competed with the thing it was annotating. border_width_m must stay well under half a tile or the borders of a one-tile region merge into a solid block. Emission is what makes the line legible on a face the sun is not hitting; without it an outline is just a thinner tint.",
+  "_overlay_note": "Overlays are drawn as region outlines, not as a tint over the ground. A flat tint recolors the terrain, so the old light-blue movement range read as water and competed with the thing it was annotating. border_width_m must stay well under half a tile or the borders of a one-tile region merge into a solid block. Emission is what makes the line legible on a face the sun is not hitting; without it an outline is just a thinner tint.",
+  "_move_band_note": "The two movement bands are separated by HUE, not by brightness — near is cyan, far is amber, on the walk-and-dash convention. They were previously the same amber at two brightnesses (hues 37 and 31, six degrees apart), which reads as one region lit unevenly rather than as two answers to two different questions. Note the history in _overlay_note: a light-blue movement range was tried before and read as water. That was a flat tint; this is an outline with a weak fill, and the cyan is deliberately pulled off the water terrain color (#3b5f78, hue 204, value 0.47) to hue 189 at value 0.88 so the two are separated on both axes. If it still reads as water, move the hue further toward green rather than going back to a brightness-only split.",
   "overlay": {
     "border_width_m": 1.4,
     "glow_width_m": 3.5,
@@ -213,11 +457,17 @@
     "emission_strength": 1.6,
     "glow_strength": 0.30,
     "path_fill_strength": 0.30,
-    "move_colour": "#ffb43c",
-    "exposed_colour": "#ff5436",
-    "hull_down_colour": "#5ed66a",
-    "hover_colour": "#ffffff",
-    "path_colour": "#fff0d2"
+    "move_color": "#3fc9e0",
+    "move_far_color": "#ffb43c",
+    "exposed_color": "#ff5436",
+    "hull_down_color": "#5ed66a",
+    "hover_color": "#ffffff",
+    "path_color": "#fff0d2",
+
+    "_overwatch_note": "Overwatch arcs are the one overlay drawn as a FILL rather than a region outline — docs/decisions/0036. Every other overlay annotates the ground a tank might stand on and an outline keeps the terrain its own color; an arc is a claim about a volume of ground being covered, and how much of it overlaps is the information. Density per overlapping arc, saturating at max_overlaps, so a valley three tanks can all reach reads darker than one two of them can. Only the viewing side's own arcs are ever drawn: an enemy's watch bearing is exactly what the ambush exists to withhold (0030).",
+    "overwatch_color": "#ff8a4c",
+    "overwatch_fill_strength": 0.16,
+    "overwatch_max_overlaps": 3
   },
 
   "camera": {
@@ -228,37 +478,87 @@
     "max_height_m": 1400.0,
     "start_height_m": 420.0,
     "orbit_sensitivity": 0.32,
-    "edge_scroll_margin_px": 6.0,
+    "edge_scroll_margin_px": 14.0,
     "edge_scroll_speed_m": 220.0,
     "min_pitch_deg": -85.0,
     "max_pitch_deg": -12.0,
     "start_pitch_deg": -46.0,
     "bounds_margin_m": 200.0,
+    "_gunner_note": "The eye sits at visibility.turret_h_m, read from the same key Los and VisionField read, because this view exists to check the overlay's claims by standing where the claim says the observer is. That is above the turret's top face, which is a commander out of the cupola and is also what makes looking backwards possible. gunner_fov_deg is where the optic starts; the wheel works it between the two limits, multiplicatively so a notch feels the same at 40 degrees as at 8.",
     "gunner_fov_deg": 28.0,
+    "gunner_fov_min_deg": 6.0,
+    "gunner_fov_max_deg": 45.0,
+    "gunner_zoom_step": 0.12,
+    "_gunner_sens_note": "Look sensitivity scales linearly with the field of view, which is what keeps a given mouse movement pushing the image the same distance across the screen at any magnification. Unscaled, a flick at 7 degrees throws the picture four times as far as the same flick at 28 and the optic is unusable exactly where it is most wanted. Referenced against gunner_fov_deg, so gunner_look_sensitivity still means what it meant at the default zoom. 1.0 is the full law, 0.0 is flat sensitivity.",
+    "gunner_zoom_sens_scaling": 1.0,
+    "gunner_look_sensitivity": 0.18,
+    "gunner_min_pitch_deg": -35.0,
+    "gunner_max_pitch_deg": 20.0,
+    "gunner_start_pitch_deg": -1.7,
     "_focus_note": "start_height_m is the overview distance and is no longer the first thing anyone sees — boot lands on the first unit at focus_distance_m. focus_only_zooms_in means selecting a unit pulls you in if you were further out but never yanks you back out if you had deliberately zoomed closer; the F key overrides that and always takes the focus distance. min_distance_m replaces a hardcoded 20.0 in tactical_camera.gd.",
     "focus_distance_m": 130.0,
     "min_distance_m": 25.0,
     "focus_lerp_rate": 6.0,
     "zoom_lerp_rate": 12.0,
-    "focus_only_zooms_in": true
+    "focus_only_zooms_in": true,
+
+    "_orbit_note": "Q and E snap the yaw to the next multiple of orbit_step_deg in that direction, rather than adding a step to wherever a mouse drag left it. A quarter turn puts a different side of the battlefield toward the camera in one press, which is what the key is for; 45 degrees was a facing increment and took two presses to do anything worth doing. It must stay a whole multiple of the 45-degree facing increment, or the grid's diagonals stop reading as diagonals. Right-drag stays continuous and writes the target directly — an eased drag reads as input lag.",
+    "orbit_step_deg": 90.0,
+    "yaw_lerp_rate": 9.0,
+
+    "_edge_scroll_note": "The margin was 6 px, which is hard to hit deliberately and easy to hit by accident reaching for a window control. Edge scroll deliberately ignores the fast multiplier, and is suspended while the camera is following an action — the cursor is almost always near an edge right after a click, and the two would fight for the focus every frame.",
+    "edge_scroll_enabled": true,
+
+    "_follow_note": "Following uses a tighter lerp than focus_lerp_rate: at 6.0 the camera trails a 26 m/s tank by about 4 m, which is pleasant, but at 3x playback that becomes 13 m and reads as lag. Deliberately NOT scaled by the playback multiplier — that would be animation timing feeding back into the camera, which is the coupling docs/decisions/0022 exists to remove.",
+    "follow_during_action": true,
+    "follow_lerp_rate": 10.0,
+    "follow_cancel_on_pan": true
+  },
+
+  "_playback_note": "Presentation only. The simulation resolves an action instantly and completely and nothing in sim/ reads this section, so no value here can change an outcome — docs/decisions/0022. drive_speed_m_s, turn_rate_deg_s and turn_settle_deg were hardcoded in tank_view.gd.",
+  "playback": {
+    "drive_speed_m_s": 26.0,
+    "reverse_speed_m_s": 16.0,
+    "turn_rate_deg_s": 195.0,
+    "turn_settle_deg": 14.0,
+    "speed_normal": 1.0,
+    "speed_fast": 3.0,
+    "default_speed_index": 0,
+    "min_event_seconds": 0.02,
+
+    "turret_rate_deg_s": 320.0,
+    "shot_flight_seconds": 0.28,
+    "shot_impact_seconds": 0.22,
+    "destroyed_seconds": 0.7,
+    "spot_seconds": 0.12
   },
 
   "_turn_note": "Two units a side, hot-seat, side-alternating — docs/decisions/0012. There is no AI in iteration 1, so ending a turn hands control over rather than triggering anything. The two-actions-per-unit budget from 0003 stays in iteration 2: actions are shooting and overwatch, and there is no combat yet for a second action to spend itself on.",
+  "_roster_note": "One of each type per side. Three is the smallest force that puts every column of units.json into play at once — the optics spread, the armor spread, and the light tank's two shots per action — and it is what makes the recon role legible rather than theoretical. Deployment walks this list and wraps, so units_per_side and roster do not have to be the same length.",
   "turn": {
-    "units_per_side": 2,
+    "roster": ["light", "medium", "heavy"],
+    "units_per_side": 3,
     "sides": 2,
     "unit_spacing_tiles": 6,
-    "auto_advance_on_exhausted": true
+    "auto_advance_on_exhausted": true,
+    "lock_controls_during_action": true,
+
+    "_turret_note": "Traversing the gun is free and uncapped within the arc — docs/decisions/0035, superseding 0032's free hull swivel. There is deliberately no allowance to tune here: the bound is combat.turret_arc_steps, which is a property of the mounting, and a second cap on top of it would be arithmetic in search of a reason. turret_step_steps is the size of one keypress, not a limit on how many.",
+    "turret_step_steps": 1,
+    "enemy_playback_speed_index": 2
   },
 
   "metrics": {
     "sightline_samples": 5000,
-    "sightline_median_min_m": 300.0,
-    "sightline_median_max_m": 900.0,
+    "sightline_median_min_m": 120.0,
+    "sightline_median_max_m": 400.0,
     "hull_down_crest_reach_tiles": 12,
     "hull_down_stride": 2,
     "hull_down_min_frac": 0.05,
     "_chokepoint_note": "Expressed as a fraction of the map's edge length, not an absolute tile count. A vertex min-cut between two edges of a 95% drivable 200-tile map is tens of tiles wide; the spec's 2-6 would mean a canyon. As a fraction the target is scale-free and still rewards a map that funnels.",
+    "_river_note": "A river must be diagonally impermeable — that is the requirement, and the corner-tile rule in MapData.can_move is what enforces it; the two-tile width most channels happen to have is a consequence, not the mechanism. These bound the number of ways across, and are only applied on seeds where the water actually divides the map: a river fades upstream into stream, which is drivable marsh, so on many seeds it runs from mid-map to one edge and separates nothing.",
+    "river_crossings_min": 2,
+    "river_crossings_max": 4,
     "chokepoint_frac_min": 0.05,
     "chokepoint_frac_max": 0.22,
     "chokepoint_cap": 80,

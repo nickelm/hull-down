@@ -36,7 +36,9 @@ func test_woods_sit_lower_than_the_map_average() -> void:
 		var all_sum: float = 0.0
 		for i: int in md.n:
 			all_sum += float(md.level[i])
-			if md.terrain[i] == TerrainTyper.Type.WOODS:
+			# Any tier. Comparing against WOODS alone would silently measure only the middle third
+			# of the forest once the stands are split.
+			if TerrainTyper.is_woods(int(md.terrain[i])):
 				woods_sum += float(md.level[i])
 				woods_n += 1
 
@@ -69,7 +71,7 @@ func test_woods_form_patches_rather_than_speckle() -> void:
 
 	var stack := PackedInt32Array()
 	for start: int in md.n:
-		if seen[start] != 0 or md.terrain[start] != TerrainTyper.Type.WOODS:
+		if seen[start] != 0 or not TerrainTyper.is_woods(int(md.terrain[start])):
 			continue
 		patches += 1
 		var size: int = 0
@@ -81,8 +83,8 @@ func test_woods_form_patches_rather_than_speckle() -> void:
 			stack.resize(stack.size() - 1)
 			size += 1
 			for d: int in 8:
-				var nb: int = md.neighbour(c, d)
-				if nb >= 0 and seen[nb] == 0 and md.terrain[nb] == TerrainTyper.Type.WOODS:
+				var nb: int = md.neighbor(c, d)
+				if nb >= 0 and seen[nb] == 0 and TerrainTyper.is_woods(int(md.terrain[nb])):
 					seen[nb] = 1
 					stack.append(nb)
 		total += size
@@ -91,7 +93,7 @@ func test_woods_form_patches_rather_than_speckle() -> void:
 	assert_gt(float(patches), 0.0, "no woods on the map")
 	var mean_patch: float = float(total) / float(maxi(patches, 1))
 
-	# Thresholds scale with map area. A stand of woods is a fixed size in metres, so it covers
+	# Thresholds scale with map area. A stand of woods is a fixed size in meters, so it covers
 	# sixteen times as many tiles on the full map as on the quarter-scale one the tests use —
 	# comparing raw tile counts would make the same terrain pass at one resolution and fail at the
 	# other.
@@ -148,7 +150,7 @@ func test_water_typing_matches_the_hydrology() -> void:
 
 
 ## Streams are wet ground, not walls. Marking every tile that contains a trickle impassable would
-## wall the map off — at ten-metre tiles a stream is something you drive through.
+## wall the map off — at ten-meter tiles a stream is something you drive through.
 func test_streams_do_not_block_movement() -> void:
 	var md: MapData = _map(12345)
 	assert_not_null(md, "generation failed")
@@ -175,13 +177,20 @@ func test_attributes_are_copied_from_the_data_file() -> void:
 	var road_cost: int = int(round(cfg.terrain_move_cost[TerrainTyper.Type.ROAD] * 10.0))
 	for i: int in md.n:
 		var t: int = int(md.terrain[i])
-		# A road is a surface laid over the ground, so where one runs it overrides the going and
-		# clears the cover while the tile keeps its own terrain type — docs/decisions/0011.
+		# A road is a surface laid over the ground, so the tile keeps its own terrain type
+		# (docs/decisions/0011) — but only the *deck* half of the modifier lands on the tile. Where
+		# the ground underneath is drivable the tile keeps its own cost, and the discount for
+		# travelling along the road is an edge property. Cover is cleared either way.
 		if md.has_road(i):
-			assert_eq(md.move_cost[i], road_cost,
-				"road tile %d did not take the road surface cost" % i)
 			assert_almost_eq(md.blocker_h[i], 0.0, 0.001,
 				"road tile %d still carries the terrain's cover" % i)
+			var natural: float = cfg.terrain_move_cost[t]
+			if natural < 0.0:
+				assert_eq(md.move_cost[i], road_cost,
+					"the deck at tile %d did not make impassable ground standable" % i)
+			else:
+				assert_eq(md.move_cost[i], int(round(natural * 10.0)),
+					"road tile %d took a surface discount that belongs on the edge" % i)
 			continue
 
 		var expected_cost: float = cfg.terrain_move_cost[t]
@@ -192,9 +201,9 @@ func test_attributes_are_copied_from_the_data_file() -> void:
 				"tile %d has the wrong movement cost for '%s'" % [i, cfg.terrain_names[t]])
 		assert_almost_eq(md.blocker_h[i], cfg.terrain_blocker_h[t], 0.001,
 			"tile %d has the wrong blocker height" % i)
-		if t == TerrainTyper.Type.WOODS:
+		if TerrainTyper.is_woods(t):
 			woods_seen = true
-			assert_gt(md.blocker_h[i], 0.0, "woods must block line of sight")
+			assert_gt(md.blocker_h[i], 0.0, "woods must carry cover")
 
 	assert_true(woods_seen, "no woods to check")
 
@@ -210,7 +219,7 @@ func test_smoothing_leaves_water_and_fords_alone() -> void:
 	var ford: int = md.idx(3, 3)
 	md.terrain[ford] = TerrainTyper.Type.FORD
 
-	TerrainTyper.smooth_majority(md, 3)
+	TerrainTyper.smooth_majority(md, cfg, 3)
 
 	assert_eq(int(md.terrain[wet]), TerrainTyper.Type.WATER, "smoothing erased an isolated river")
 	assert_eq(int(md.terrain[ford]), TerrainTyper.Type.FORD, "smoothing erased a ford")
@@ -223,9 +232,90 @@ func test_smoothing_removes_isolated_speckle() -> void:
 	var speck: int = md.idx(6, 6)
 	md.terrain[speck] = TerrainTyper.Type.ROCK
 
-	TerrainTyper.smooth_majority(md, 1)
+	TerrainTyper.smooth_majority(md, cfg, 1)
 	assert_eq(int(md.terrain[speck]), TerrainTyper.Type.OPEN,
 		"a single rock tile in a field of open ground survived smoothing")
+
+
+# --- forest tiers ---------------------------------------------------------------------------------
+
+## The tiers must survive majority smoothing.
+##
+## Smoothing replaces any tile whose neighbors hold a strict majority of one type, three passes
+## over, so a dense core assigned *before* it is a minority all along its own edge and gets eaten
+## back to ordinary woods almost everywhere. Promotion therefore runs after smoothing — and this is
+## the assertion that catches it if that ordering is ever reversed.
+func test_all_three_forest_tiers_survive_generation() -> void:
+	var md: MapData = _map(12345)
+	assert_not_null(md, "generation failed")
+	if md == null:
+		return
+
+	var counts := {
+		TerrainTyper.Type.WOODS_LIGHT: 0,
+		TerrainTyper.Type.WOODS: 0,
+		TerrainTyper.Type.WOODS_HEAVY: 0,
+	}
+	for i: int in md.n:
+		var t: int = int(md.terrain[i])
+		if counts.has(t):
+			counts[t] = int(counts[t]) + 1
+
+	for t2: int in counts:
+		assert_gt(float(int(counts[t2])), 0.0,
+			"no '%s' anywhere on the map — the tiers were smoothed away" % cfg.terrain_names[t2])
+
+
+## Heavy forest is the second source of impassable ground, and it has to stay a minority of the map
+## or the connectivity guarantee is being asked to do too much work.
+func test_heavy_forest_is_impassable_but_stays_a_minority() -> void:
+	var md: MapData = _map(777)
+	assert_not_null(md, "generation failed")
+	if md == null:
+		return
+
+	var heavy: int = 0
+	for i: int in md.n:
+		if int(md.terrain[i]) != TerrainTyper.Type.WOODS_HEAVY:
+			continue
+		heavy += 1
+		# Unless a road runs over it, in which case the deck makes it standable.
+		if not md.has_road(i):
+			assert_false(md.is_passable(i), "heavy forest at tile %d is drivable" % i)
+
+	var frac: float = float(heavy) / float(md.n)
+	assert_gt(frac, 0.0, "no heavy forest was generated at all")
+	assert_lt(frac, 0.12,
+		"heavy forest covers %.1f%% of the map, which is a maze rather than a wood" % (frac * 100.0))
+
+
+## The whole point of the light tier: it is cover a tank can see over.
+##
+## LOS blocks when a tile's cover clears the observer's eye line, and the eye sits at turret height.
+## Light woods is below that, so a belt of it must not shorten the view — while ordinary woods, on
+## the identical fixture, must stop it dead.
+func test_light_forest_does_not_block_a_turret_but_ordinary_woods_does() -> void:
+	var md := MapData.create(24)
+	md.move_cost.fill(10)
+	md.terrain.fill(TerrainTyper.Type.OPEN)
+	Quantizer.classify_transitions(md, cfg)
+
+	var observer: int = md.idx(2, 12)
+	var clear: float = Los.clear_range(md, cfg, observer, Grid.E, 20)
+
+	for y: int in md.size:
+		var t: int = md.idx(8, y)
+		md.terrain[t] = TerrainTyper.Type.WOODS_LIGHT
+		md.blocker_h[t] = cfg.terrain_blocker_h[TerrainTyper.Type.WOODS_LIGHT]
+	assert_almost_eq(Los.clear_range(md, cfg, observer, Grid.E, 20), clear, 0.001,
+		"a belt of light woods shortened the view — it stands above the turret line")
+
+	for y2: int in md.size:
+		var t2: int = md.idx(8, y2)
+		md.terrain[t2] = TerrainTyper.Type.WOODS
+		md.blocker_h[t2] = cfg.terrain_blocker_h[TerrainTyper.Type.WOODS]
+	assert_lt(Los.clear_range(md, cfg, observer, Grid.E, 20), clear,
+		"a belt of ordinary woods did not block the view")
 
 
 func test_every_tile_gets_a_valid_type() -> void:

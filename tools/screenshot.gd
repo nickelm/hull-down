@@ -100,8 +100,8 @@ func _build_world(cfg: Config, md: MapData) -> Node3D:
 	env.background_mode = Environment.BG_SKY
 	var sky := Sky.new()
 	var sky_mat := ProceduralSkyMaterial.new()
-	sky_mat.sky_top_color = cfg.colour("look.sky_top", Color(0.49, 0.62, 0.77))
-	sky_mat.sky_horizon_color = cfg.colour("look.sky_horizon", Color(0.72, 0.77, 0.80))
+	sky_mat.sky_top_color = cfg.color("look.sky_top", Color(0.49, 0.62, 0.77))
+	sky_mat.sky_horizon_color = cfg.color("look.sky_horizon", Color(0.72, 0.77, 0.80))
 	sky_mat.ground_bottom_color = sky_mat.sky_horizon_color.darkened(0.3)
 	sky_mat.ground_horizon_color = sky_mat.sky_horizon_color
 	sky.sky_material = sky_mat

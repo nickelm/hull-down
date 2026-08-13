@@ -39,7 +39,7 @@ func test_flat_ground_is_all_exposed() -> void:
 ## A wall taller than the turret hides everything behind it.
 func test_a_wall_masks_what_is_behind_it() -> void:
 	var md: MapData = _flat()
-	# Twelve quanta is six metres, well above turret height.
+	# Twelve quanta is six meters, well above turret height.
 	for y: int in md.size:
 		md.level[md.idx(8, y)] = 12
 	Quantizer.classify_transitions(md, cfg)
@@ -48,7 +48,7 @@ func test_a_wall_masks_what_is_behind_it() -> void:
 	assert_eq(Los.classify(md, cfg, observer, md.idx(6, 12)), Los.Exposure.EXPOSED,
 		"ground in front of the wall should be visible")
 	assert_eq(Los.classify(md, cfg, observer, md.idx(12, 12)), Los.Exposure.MASKED,
-		"ground behind a six-metre wall should be masked")
+		"ground behind a six-meter wall should be masked")
 	assert_eq(Los.classify(md, cfg, observer, md.idx(20, 12)), Los.Exposure.MASKED,
 		"ground far behind the wall should still be masked")
 

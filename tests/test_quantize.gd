@@ -119,7 +119,7 @@ func test_quantize_rounds_to_the_nearest_level() -> void:
 
 # --- transitions ------------------------------------------------------------------------------------
 
-## The spec's thresholds are 1 m and 2 m. At half-metre quanta that is 2 and 4, and the comparison
+## The spec's thresholds are 1 m and 2 m. At half-meter quanta that is 2 and 4, and the comparison
 ## is exact integer arithmetic — there is no epsilon and no "almost passable".
 func test_transition_classes_at_the_exact_boundaries() -> void:
 	var normal_max: int = cfg.i("traversal.normal_max_dl", 2)
@@ -139,7 +139,7 @@ func test_transition_classes_at_the_exact_boundaries() -> void:
 		"downhill classifies the same as uphill")
 
 
-## Only four directions are stored; the other four read the same byte from the neighbour. Symmetry
+## Only four directions are stored; the other four read the same byte from the neighbor. Symmetry
 ## is therefore structural, and this test proves the lookup actually does that rather than keeping
 ## two copies that could drift.
 func test_transitions_are_symmetric_from_both_sides() -> void:
@@ -149,7 +149,7 @@ func test_transitions_are_symmetric_from_both_sides() -> void:
 	var mismatches: int = 0
 	for i: int in md.n:
 		for d: int in 8:
-			var nb: int = md.neighbour(i, d)
+			var nb: int = md.neighbor(i, d)
 			if nb < 0:
 				continue
 			if md.transition(i, d) != md.transition(nb, Grid.opposite(d)):
@@ -164,8 +164,8 @@ func test_set_transition_is_visible_from_both_sides() -> void:
 
 	md.set_transition(a, Grid.W, MapData.Trans.BLOCKED)
 	assert_eq(md.transition(a, Grid.W), MapData.Trans.BLOCKED, "writing a non-canonical direction")
-	assert_eq(md.transition(md.neighbour(a, Grid.W), Grid.E), MapData.Trans.BLOCKED,
-		"the neighbour must see the same edge")
+	assert_eq(md.transition(md.neighbor(a, Grid.W), Grid.E), MapData.Trans.BLOCKED,
+		"the neighbor must see the same edge")
 
 
 func test_map_edges_are_blocked() -> void:
@@ -221,7 +221,7 @@ func test_reclassify_around_only_touches_one_tile() -> void:
 
 	# Every edge touching the moved tile must be re-evaluated...
 	for d: int in 8:
-		var nb: int = md.neighbour(target, d)
+		var nb: int = md.neighbor(target, d)
 		if nb < 0:
 			continue
 		var expected: int = Quantizer.classify_edge(
@@ -239,10 +239,10 @@ func test_reclassify_around_only_touches_one_tile() -> void:
 
 # --- height helpers --------------------------------------------------------------------------------
 
-func test_levels_convert_to_metres() -> void:
+func test_levels_convert_to_meters() -> void:
 	var md := MapData.create(4)
 	md.level[0] = 7
-	assert_almost_eq(md.height_m(0), 3.5, 0.0001, "seven half-metre quanta is 3.5 m")
+	assert_almost_eq(md.height_m(0), 3.5, 0.0001, "seven half-meter quanta is 3.5 m")
 
 	md.blocker_h[0] = 8.0
 	assert_almost_eq(md.blocker_top_m(0), 11.5, 0.0001,

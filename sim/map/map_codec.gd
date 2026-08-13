@@ -12,7 +12,10 @@ extends RefCounted
 ## version check — a map file is a cache, not an archive. If the version does not match, regenerate.
 
 const MAGIC := 0x484D4150  # "HMAP"
-const VERSION := 2
+## 3: objective_value appended (2e-iii). A map file is a cache — old versions regenerate.
+## 4: no format change — invalidates caches generated before the connectivity guarantee
+##    (`ConnectivityRepair.repair` + fords), which loads never re-validate.
+const VERSION := 4
 
 
 static func save(md: MapData, path: String) -> Error:
@@ -42,6 +45,7 @@ static func save(md: MapData, path: String) -> Error:
 	_write(f, md.road_links)
 	_write(f, md.deploy_zone)
 	_write(f, md.objectives.to_byte_array())
+	_write(f, md.objective_value.to_byte_array())
 
 	f.close()
 	return OK
@@ -80,6 +84,7 @@ static func load_map(path: String) -> MapData:
 	md.road_links = _read(f)
 	md.deploy_zone = _read(f)
 	md.objectives = _read(f).to_int32_array()
+	md.objective_value = _read(f).to_int32_array()
 
 	f.close()
 	return md

@@ -14,7 +14,7 @@ extends RefCounted
 ## - **Each wall is emitted once, by the higher tile.** Emitting from both sides would double the
 ##   geometry and put two coplanar faces in the same place to z-fight.
 ##
-## Escarpment walls get a distinct cliff colour. That single decision is most of what makes the
+## Escarpment walls get a distinct cliff color. That single decision is most of what makes the
 ## fly-over legible: impassable edges are visible as terrain, with no overlay and no legend.
 
 ## Tiles per chunk. Chunking gives frustum culling and lets a local edit rebuild one chunk instead
@@ -46,7 +46,7 @@ static func build_chunk(
 	var tile_m: float = md.tile_m
 	var quant: float = md.quant
 	var escarpment_dl: int = cfg.i("traversal.rough_max_dl", 4)
-	var jitter: float = cfg.f("look.colour_jitter", 0.02)
+	var jitter: float = cfg.f("look.color_jitter", 0.02)
 
 	# Pass one counts faces so the arrays are sized exactly once. Integer work only, about a
 	# millisecond; the alternative is repeatedly growing three arrays of half a million entries.
@@ -99,7 +99,7 @@ static func build_chunk(
 				Vector3.UP, top
 			)
 
-			# Walls, emitted only towards lower neighbours.
+			# Walls, emitted only towards lower neighbors.
 			if x2 + 1 < md.size:
 				var ln: int = md.level[i2 + 1]
 				if ln < lv2:
@@ -190,7 +190,7 @@ static func build_chunk(
 	return mesh
 
 
-## Emit one quad as two triangles, six unshared vertices, one normal, one colour. Returns the new
+## Emit one quad as two triangles, six unshared vertices, one normal, one color. Returns the new
 ## write cursor.
 ##
 ## Callers pass a, b, c, d in the order the right-hand rule would give for the outward normal, and

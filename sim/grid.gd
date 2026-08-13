@@ -35,7 +35,7 @@ static var DY := PackedInt32Array([-1, -1, 0, 1, 1, 1, 0, -1])
 static var IS_DIAG := PackedByteArray([0, 1, 0, 1, 0, 1, 0, 1])
 
 ## The four directions in which transitions are stored canonically (E, SE, S, SW). The reverse of
-## each is read from the neighbour tile instead of being stored twice, which makes edge symmetry
+## each is read from the neighbor tile instead of being stored twice, which makes edge symmetry
 ## structural rather than something to test for.
 static var CANON := PackedInt32Array([E, SE, S, SW])
 
@@ -59,8 +59,8 @@ static func in_bounds(x: int, y: int) -> bool:
 	return x >= 0 and x < SIZE and y >= 0 and y < SIZE
 
 
-## Neighbour tile index in direction d, or -1 if it would leave the map.
-static func neighbour(i: int, d: int) -> int:
+## Neighbor tile index in direction d, or -1 if it would leave the map.
+static func neighbor(i: int, d: int) -> int:
 	var x: int = (i % SIZE) + DX[d]
 	var y: int = (i / SIZE) + DY[d]
 	if x < 0 or x >= SIZE or y < 0 or y >= SIZE:
@@ -98,16 +98,16 @@ static func dir_between(ax: int, ay: int, bx: int, by: int) -> int:
 	return -1
 
 
-## Euclidean distance in metres between two tile centres.
+## Euclidean distance in meters between two tile centers.
 static func dist_m(a: int, b: int) -> float:
 	var dx: float = float((a % SIZE) - (b % SIZE)) * TILE_M
 	var dy: float = float((a / SIZE) - (b / SIZE)) * TILE_M
 	return sqrt(dx * dx + dy * dy)
 
 
-## World-space centre of a tile at a given quantized level. Godot is Y-up; the grid's Y axis maps
+## World-space center of a tile at a given quantized level. Godot is Y-up; the grid's Y axis maps
 ## to world Z, so tile (0,0) sits at the world origin corner and +Y on the grid runs south.
-static func centre_world(i: int, level: int) -> Vector3:
+static func center_world(i: int, level: int) -> Vector3:
 	return Vector3(
 		(float(i % SIZE) + 0.5) * TILE_M,
 		float(level) * QUANT,

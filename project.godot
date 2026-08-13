@@ -26,14 +26,6 @@ gdscript/warnings/unsafe_method_access=1
 
 window/size/viewport_width=1600
 window/size/viewport_height=900
-window/size/resizable=true
-; "disabled" makes the root viewport track the window exactly, so resizing shows more world instead
-; of letterboxing and upscaling a fixed 1600x900 frame. It also keeps mouse picking honest:
-; TilePicker feeds raw event positions into Camera3D.project_ray_origin, and under a scaled canvas
-; those two are in different spaces. Camera3D.keep_aspect defaults to KEEP_HEIGHT, so a wider window
-; gains horizontal field of view. The HUD is then in raw pixels and scales its own fonts against
-; look.hud.reference_height.
-window/stretch/mode="disabled"
 window/stretch/aspect="expand"
 
 [rendering]

@@ -26,7 +26,7 @@ func _initialize() -> void:
 		else MapGenerator.Params.from_config(cfg)
 	)
 	# Overrides for tuning runs. --hf-size keeps the map 2 km across by scaling the cell size, so
-	# every threshold expressed in metres stays comparable between sizes.
+	# every threshold expressed in meters stays comparable between sizes.
 	if cli.has("hf-size"):
 		var span: float = float(p.hf_size) * p.hf_cell_m
 		p.hf_size = cli.int_opt("hf-size", p.hf_size)
@@ -194,7 +194,7 @@ func _initialize() -> void:
 	quit(0)
 
 
-## The gameplay map as the rules see it: terrain colours from terrain.json, escarpment edges picked
+## The gameplay map as the rules see it: terrain colors from terrain.json, escarpment edges picked
 ## out in black, deployment zones tinted, objectives marked. This is the view that answers 4.6 and
 ## 4.7 — whether woods cluster in the valleys, and whether the zones landed on sane ground.
 func _dump_tiles(md: MapData, cfg: Config, path: String) -> Error:
@@ -205,15 +205,15 @@ func _dump_tiles(md: MapData, cfg: Config, path: String) -> Error:
 	for y: int in md.size:
 		for x: int in md.size:
 			var i: int = md.idx(x, y)
-			var col: Color = cfg.terrain_colours[int(md.terrain[i])]
+			var col: Color = cfg.terrain_colors[int(md.terrain[i])]
 
-			# Shade by elevation so relief is still readable through the type colours.
+			# Shade by elevation so relief is still readable through the type colors.
 			col = col.lerp(Color.WHITE, clampf(float(md.level[i]) * md.quant / 260.0, 0.0, 0.5))
 
 			# Roads are a layer over the terrain rather than a type of it, so they have to be drawn
 			# on top or they vanish from this diagnostic entirely.
 			if md.has_road(i):
-				col = col.lerp(cfg.terrain_colours[TerrainTyper.Type.ROAD], 0.75)
+				col = col.lerp(cfg.terrain_colors[TerrainTyper.Type.ROAD], 0.75)
 
 			var zone: int = int(md.deploy_zone[i])
 			if zone == 1:
@@ -285,7 +285,7 @@ func _print_edge_histogram(md: MapData) -> void:
 				buckets[5] += 1
 			if dl > 4:
 				blocked += 1
-				# Is this edge next to water? River carving cuts metres in a single tile, so a
+				# Is this edge next to water? River carving cuts meters in a single tile, so a
 				# bank is an escarpment by construction and needs a different remedy from a
 				# hillside that is simply too steep.
 				if (

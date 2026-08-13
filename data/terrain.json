@@ -1,76 +1,37 @@
 {
-  "_comment": "Indexed by TerrainTyper.Type. Order is load-bearing — do not reorder without changing the enum. move_cost is a multiplier on the base step cost; -1 means impassable. spotting is a multiplier on base spotting range for a unit standing on the tile. blocker_h is metres of LOS-opaque cover above ground level.",
-  "cliff_colour": "#5f584e",
+  "_comment": "Indexed by TerrainTyper.Type. Order is load-bearing — do not reorder without changing the enum. blocker_h is meters of LOS-opaque cover above ground level; note that visibility.turret_h_m is 2.6, so cover below that height does not block a tank's line of sight at all on level ground — it is the threshold the tiers are chosen around, not a smooth dial. The per-type `spotting` scalar that used to live here has been replaced by concealment_classes below — see docs/decisions/0028.",
+  "cliff_color": "#5f584e",
   "types": [
-    {
-      "name": "open",
-      "move_cost": 1.0,
-      "spotting": 1.0,
-      "blocker_h": 0.0,
-      "colour": "#7c8a55"
-    },
-    {
-      "name": "scrub",
-      "move_cost": 1.2,
-      "spotting": 0.9,
-      "blocker_h": 0.0,
-      "colour": "#8b8f5d"
-    },
-    {
-      "name": "woods",
-      "move_cost": 1.8,
-      "spotting": 0.4,
-      "blocker_h": 8.0,
-      "colour": "#3f5133"
-    },
-    {
-      "name": "marsh",
-      "move_cost": 2.2,
-      "spotting": 0.8,
-      "blocker_h": 0.0,
-      "colour": "#5c6b52"
-    },
-    {
-      "name": "rock",
-      "move_cost": 1.6,
-      "spotting": 0.95,
-      "blocker_h": 0.0,
-      "colour": "#8a8378"
-    },
-    {
-      "name": "water",
-      "move_cost": -1.0,
-      "spotting": 1.0,
-      "blocker_h": 0.0,
-      "colour": "#3b5f78"
-    },
-    {
-      "name": "ford",
-      "move_cost": 1.6,
-      "spotting": 1.0,
-      "blocker_h": 0.0,
-      "colour": "#6d7f7d"
-    },
-    {
-      "name": "road",
-      "move_cost": 0.6,
-      "spotting": 1.0,
-      "blocker_h": 0.0,
-      "colour": "#9a8f7a"
-    },
-    {
-      "name": "field",
-      "move_cost": 1.0,
-      "spotting": 0.95,
-      "blocker_h": 0.0,
-      "colour": "#a89a63"
-    },
-    {
-      "name": "village",
-      "move_cost": 1.4,
-      "spotting": 0.5,
-      "blocker_h": 6.0,
-      "colour": "#8e7f70"
-    }
+    { "name": "open",    "blocker_h": 0.0, "color": "#7c8a55" },
+    { "name": "scrub",   "blocker_h": 0.0, "color": "#8b8f5d" },
+    { "name": "woods",   "blocker_h": 8.0, "color": "#3f5133" },
+    { "name": "marsh",   "blocker_h": 0.0, "color": "#5c6b52" },
+    { "name": "rock",    "blocker_h": 0.0, "color": "#8a8378" },
+    { "name": "water",   "blocker_h": 0.0, "color": "#3b5f78" },
+    { "name": "ford",    "blocker_h": 0.0, "color": "#6d7f7d" },
+    { "name": "road",    "blocker_h": 0.0, "color": "#9a8f7a" },
+    { "name": "field",   "blocker_h": 0.0, "color": "#a89a63" },
+    { "name": "village", "blocker_h": 6.0, "color": "#8e7f70" },
+
+    { "name": "woods_light", "blocker_h": 2.2,  "color": "#5a6b3f" },
+    { "name": "woods_heavy", "blocker_h": 10.0, "color": "#2b3a24" }
+  ],
+
+  "_forest_tiers_comment": "The tiers are appended rather than inserted next to woods because these indices are raw array offsets — TerrainTyper.Type indexes straight into types, and inserting at 3 would silently repaint every map. woods_light's 2.2 m is chosen against visibility.turret_h_m (2.6) and hull_h_m (1.4), not picked for looks: LOS blocks when a tile's cover rises above the observer's eye line, and the eye is ground + turret_h. Cover below 2.6 m therefore blocks a tank's sightline not at all, while cover above 1.4 m still masks a target's hull — so light woods is concealment that hides the hull and leaves the turret, which is the state this game is named after. Above 2.6 m the tier is simply opaque and 3 m occludes exactly as thoroughly as 8 m does. It is a threshold, not a dial.",
+
+  "_concealment_comment": "How hard it is to SEE a unit standing on each terrain type, as a multiplier on the observing side's optical range — spotting is deterministic and this is one of its three modifiers (docs/decisions/0024). Indexed by MovementClass.Kind, and each `values` array is parallel to types above; both orders are load-bearing, exactly as in movement_classes. Per class rather than per type because concealment is the one visibility number that is not a property of the ground alone: a tank in heavy forest is a tank wedged between trunks it cannot fit through, and a rifle section in the same stand is invisible. Making that a data axis now is what lets infantry land later without touching code. Config slices the tracked row out as terrain_spotting, which is what almost every caller means — the same relationship terrain_move_cost has to class_move_cost, and for the same reason. The tracked row is numerically identical to the per-type `spotting` scalar it replaces, so the restructure changed no behavior for the iteration-2 roster; tests/test_config pins that against a literal. A class that omits a terrain pads to 1.0 — fully visible — which is the opposite of the movement table's impassable padding and for the same reason: nobody-decided must not read as invisible.",
+  "concealment_classes": [
+    { "name": "tracked",    "values": [1.00, 0.90, 0.40, 0.80, 0.95, 1.00, 1.00, 1.00, 0.95, 0.50, 0.70, 0.25] },
+    { "name": "wheeled",    "values": [1.00, 0.90, 0.40, 0.80, 0.95, 1.00, 1.00, 1.00, 0.95, 0.50, 0.70, 0.25] },
+    { "name": "foot",       "values": [0.85, 0.55, 0.18, 0.50, 0.60, 1.00, 0.90, 1.00, 0.70, 0.22, 0.35, 0.10] },
+    { "name": "amphibious", "values": [1.00, 0.90, 0.40, 0.80, 0.95, 1.00, 1.00, 1.00, 0.95, 0.50, 0.70, 0.25] }
+  ],
+
+  "_movement_classes_comment": "Movement cost per (class, terrain type). Indexed by MovementClass.Kind, and each costs array is parallel to types above — both orders are load-bearing. A cost is a multiplier on the base step cost; -1 means impassable to that class. This is the single source of truth for going: there is deliberately no per-type move_cost field, because two places to write the same number is one place to get it wrong. The road row is not a tile type — no tile is ever assigned it (see docs/decisions/0011). It is the made surface: the cost of a step that runs along a road link, and the cost of standing on a road tile whose natural ground the class could not otherwise enter, which is what makes a bridge deck drivable.",
+  "movement_classes": [
+    { "name": "tracked",    "costs": [1.0, 1.2,  1.8,  2.2,  1.6, -1.0, 1.6, 0.6, 1.0, 1.4,  1.4, -1.0] },
+    { "name": "wheeled",    "costs": [1.3, 1.8,  2.8, -1.0,  2.6, -1.0, 2.0, 0.5, 1.3, 1.2,  1.9, -1.0] },
+    { "name": "foot",       "costs": [1.0, 1.1,  1.3,  1.6,  1.5, -1.0, 1.2, 0.9, 1.0, 1.1,  1.1,  2.6] },
+    { "name": "amphibious", "costs": [1.0, 1.2,  1.8,  1.6,  1.6,  2.4, 1.4, 0.6, 1.0, 1.4,  1.4, -1.0] }
   ]
 }

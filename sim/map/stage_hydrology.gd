@@ -9,7 +9,7 @@ extends RefCounted
 ##      the single most common way to get a broken map: D8 lands in the pit, flow accumulation
 ##      finds a cycle, and rivers arrive with gaps in them — which is exactly what the acceptance
 ##      check looks for.
-##   2. **D8 flow direction.** Each cell points at its steepest downhill neighbour.
+##   2. **D8 flow direction.** Each cell points at its steepest downhill neighbor.
 ##   3. **Flow accumulation** by topological order. Not recursion — the drainage tree is 640k deep
 ##      in the worst case and would blow the stack.
 ##   4. **Carve** the channels the accumulation found, and enforce that beds run downhill.
@@ -24,7 +24,7 @@ enum Channel { NONE = 0, STREAM = 1, RIVER = 2 }
 
 
 class Result extends RefCounted:
-	## Steepest-downhill neighbour of each cell, or -1 at a map-edge outlet.
+	## Steepest-downhill neighbor of each cell, or -1 at a map-edge outlet.
 	var receiver: PackedInt32Array
 	## Cells ordered headwaters first, outlets last. Reused by carving and by the bed monotonicity
 	## pass, both of which need to walk the drainage tree in a known direction.
@@ -33,9 +33,9 @@ class Result extends RefCounted:
 	var accum: PackedFloat32Array
 	## Channel.NONE / STREAM / RIVER
 	var channel: PackedByteArray
-	## Metres cut below the pre-carve surface. Zero away from channels.
+	## Meters cut below the pre-carve surface. Zero away from channels.
 	var depth: PackedFloat32Array
-	## Water surface elevation in metres, meaningful only where channel != NONE.
+	## Water surface elevation in meters, meaningful only where channel != NONE.
 	var surface: PackedFloat32Array
 	## 1 where a channel cell is shallow enough and its banks gentle enough to drive across.
 	var ford: PackedByteArray
@@ -82,7 +82,7 @@ static func run(
 		progress.call(TAG, 0.9)
 	_detect_fords(field, cfg, master_seed, r)
 	# Easing a ford raises the bed at the crossing, which leaves the water immediately upstream
-	# sitting below it. Re-levelling backfills that reach — which is what a real gravel bar does.
+	# sitting below it. Re-leveling backfills that reach — which is what a real gravel bar does.
 	r.bed_fixups = _enforce_bed_slope(field, cfg, r)
 	_compute_surface(field, cfg, r)
 
@@ -99,7 +99,7 @@ static func run(
 ## raised to just above whatever it was reached from, which guarantees a strictly descending path
 ## from every cell to the edge.
 ##
-## The priority queue is a bucket queue over height quantized to a centimetre, because pops proceed
+## The priority queue is a bucket queue over height quantized to a centimeter, because pops proceed
 ## in non-decreasing water level — a cursor that only ever moves forward is all the ordering this
 ## needs, and it turns an O(n log n) heap into O(n).
 ##
@@ -199,7 +199,7 @@ static func fill_depressions(field: HeightField, cfg: Config) -> int:
 
 # --- 2. D8 flow direction ----------------------------------------------------------------------
 
-## Steepest descent among the eight neighbours, with diagonal drops divided by their longer
+## Steepest descent among the eight neighbors, with diagonal drops divided by their longer
 ## distance so a gentle diagonal does not beat a steep orthogonal. Ties go to the lowest direction
 ## index, which makes the choice reproducible rather than dependent on float comparison order.
 static func flow_directions(field: HeightField) -> PackedInt32Array:
@@ -293,7 +293,7 @@ static func _accumulate(field: HeightField, r: Result) -> void:
 	#
 	# Accumulation spans five orders of magnitude between a hilltop and a river mouth, and its
 	# distribution is brutally skewed — the great majority of cells drain only themselves and a
-	# neighbour or two. Dividing log(accum) by log(n) puts almost the whole map below 0.1, so any
+	# neighbor or two. Dividing log(accum) by log(n) puts almost the whole map below 0.1, so any
 	# threshold expressed as "damp ground" either catches nothing or catches everything. That is
 	# how terrain typing first shipped 0.2% woods.
 	#
@@ -415,7 +415,7 @@ static func _carve(field: HeightField, cfg: Config, r: Result) -> void:
 				if d2 > hw * hw:
 					continue
 				# The cut is a depth removed from whatever is already there, full at the
-				# centreline and tapering to nothing at the rim.
+				# centerline and tapering to nothing at the rim.
 				#
 				# Expressing it as an absolute target elevation instead — bed plus a parabola —
 				# looks equivalent and is not: on a steep valley wall the rim of the parabola sits
@@ -519,7 +519,7 @@ static func _detect_fords(field: HeightField, cfg: Config, master_seed: int, r: 
 	var scored := PackedInt64Array()
 	for i: int in n:
 		# Rivers only. A ford is a crossing of something that would otherwise stop a tank, and a
-		# headwater stream a metre wide stops nothing — treating every trickle as a ford produced
+		# headwater stream a meter wide stops nothing — treating every trickle as a ford produced
 		# fifty of them per map and made the marker meaningless.
 		if channel_at(r, i) != Channel.RIVER:
 			continue
@@ -538,8 +538,8 @@ static func _detect_fords(field: HeightField, cfg: Config, master_seed: int, r: 
 	# Take the best-scoring crossings that are far enough apart, then make each one drivable if it
 	# is not already.
 	#
-	# There is deliberately no "only accept naturally shallow cells" gate. Rivers are carved metres
-	# deep by construction, so no river cell can ever pass a sub-metre depth threshold and such a
+	# There is deliberately no "only accept naturally shallow cells" gate. Rivers are carved meters
+	# deep by construction, so no river cell can ever pass a sub-meter depth threshold and such a
 	# gate accepts nothing on every seed — the repair path would be the only path that ever ran,
 	# while looking like a fallback. Choosing the least-bad crossings and easing them is what
 	# actually happens, so that is what the code says.
@@ -593,14 +593,14 @@ static func _far_enough(accepted: PackedInt32Array, idx: int, w: int, sep2: floa
 ## Raise the bed and ease the banks until the crossing is drivable. Mass is not conserved here and
 ## should not be — this is the map being made playable, not sediment moving.
 static func _flatten_ford(
-	field: HeightField, r: Result, centre: int, radius: int, max_depth: float
+	field: HeightField, r: Result, center: int, radius: int, max_depth: float
 ) -> void:
 	var w: int = field.w
 	var h: int = field.h
 	var H: PackedFloat32Array = field.data
 
-	var cx: int = centre % w
-	var cy: int = centre / w
+	var cx: int = center % w
+	var cy: int = center / w
 
 	# Bank level around the crossing, sampled just outside the channel.
 	var bank_sum: float = 0.0
@@ -630,7 +630,7 @@ static func _flatten_ford(
 			var want: float = target_bed if channel_at(r, j2) != Channel.NONE else bank
 			H[j2] = lerpf(H[j2], want, t * t)
 			# The water surface is not touched here; it is derived from the final bed once the
-			# levelling pass after fords has run.
+			# leveling pass after fords has run.
 			if channel_at(r, j2) != Channel.NONE:
 				r.depth[j2] = minf(r.depth[j2], max_depth)
 

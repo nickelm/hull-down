@@ -14,7 +14,7 @@ extends RefCounted
 ## Roads move on the four orthogonal directions only.
 ##
 ## A road segment is defined by the edge it enters through and the edge it leaves by, drawn as a
-## curve through the tile centre. A diagonal step would enter through a corner, and corners are not
+## curve through the tile center. A diagonal step would enter through a corner, and corners are not
 ## edges — the curve would have nothing to attach to and adjacent segments would not meet.
 static func route_4(
 	md: MapData, from_tile: int, to_tile: int, edge_cost: Callable, heuristic_scale: float = 1.0
@@ -66,7 +66,7 @@ static func _search(
 
 		for k: int in dirs.size():
 			var d: int = dirs[k]
-			var nb: int = md.neighbour(c, d)
+			var nb: int = md.neighbor(c, d)
 			if nb < 0 or closed[nb] != 0:
 				continue
 			var step: int = edge_cost.call(c, nb, d)

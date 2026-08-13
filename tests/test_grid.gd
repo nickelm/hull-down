@@ -72,18 +72,18 @@ func test_canonical_direction_tables_agree() -> void:
 	assert_eq(canonical, 4, "expected exactly four canonical directions")
 
 
-func test_neighbour_respects_bounds() -> void:
+func test_neighbor_respects_bounds() -> void:
 	# Every direction from the top-left corner that goes north or west must fall off the map.
 	var corner: int = Grid.idx(0, 0)
-	assert_eq(Grid.neighbour(corner, Grid.N), -1, "north from the top edge")
-	assert_eq(Grid.neighbour(corner, Grid.W), -1, "west from the left edge")
-	assert_eq(Grid.neighbour(corner, Grid.NW), -1, "north-west from the corner")
-	assert_eq(Grid.neighbour(corner, Grid.E), Grid.idx(1, 0), "east from the corner")
-	assert_eq(Grid.neighbour(corner, Grid.S), Grid.idx(0, 1), "south from the corner")
+	assert_eq(Grid.neighbor(corner, Grid.N), -1, "north from the top edge")
+	assert_eq(Grid.neighbor(corner, Grid.W), -1, "west from the left edge")
+	assert_eq(Grid.neighbor(corner, Grid.NW), -1, "north-west from the corner")
+	assert_eq(Grid.neighbor(corner, Grid.E), Grid.idx(1, 0), "east from the corner")
+	assert_eq(Grid.neighbor(corner, Grid.S), Grid.idx(0, 1), "south from the corner")
 
 	# The east step must never wrap onto the next row.
 	var row_end: int = Grid.idx(Grid.SIZE - 1, 5)
-	assert_eq(Grid.neighbour(row_end, Grid.E), -1, "east from the right edge wrapped")
+	assert_eq(Grid.neighbor(row_end, Grid.E), -1, "east from the right edge wrapped")
 
 
 func test_octile_matches_brute_force() -> void:
@@ -113,7 +113,7 @@ func test_dir_between() -> void:
 	assert_eq(Grid.dir_between(5, 5, 5, 5), -1, "no direction to the tile you are on")
 
 
-func test_distance_is_metres() -> void:
+func test_distance_is_meters() -> void:
 	assert_almost_eq(Grid.dist_m(Grid.idx(0, 0), Grid.idx(1, 0)), Grid.TILE_M, 0.001,
 		"one tile east is one tile width")
 	assert_almost_eq(Grid.dist_m(Grid.idx(0, 0), Grid.idx(3, 4)), 50.0, 0.001,
@@ -126,12 +126,12 @@ func test_distance_is_metres() -> void:
 	)
 
 
-func test_centre_world_places_tiles_on_the_quantum() -> void:
-	var p: Vector3 = Grid.centre_world(Grid.idx(0, 0), 0)
-	assert_almost_eq(p.x, 5.0, 0.001, "tile centre x")
-	assert_almost_eq(p.z, 5.0, 0.001, "tile centre z")
+func test_center_world_places_tiles_on_the_quantum() -> void:
+	var p: Vector3 = Grid.center_world(Grid.idx(0, 0), 0)
+	assert_almost_eq(p.x, 5.0, 0.001, "tile center x")
+	assert_almost_eq(p.z, 5.0, 0.001, "tile center z")
 	assert_almost_eq(p.y, 0.0, 0.001, "level 0 is y = 0")
-	var q: Vector3 = Grid.centre_world(Grid.idx(2, 3), 7)
-	assert_almost_eq(q.x, 25.0, 0.001, "tile centre x at (2,3)")
-	assert_almost_eq(q.z, 35.0, 0.001, "tile centre z at (2,3)")
+	var q: Vector3 = Grid.center_world(Grid.idx(2, 3), 7)
+	assert_almost_eq(q.x, 25.0, 0.001, "tile center x at (2,3)")
+	assert_almost_eq(q.z, 35.0, 0.001, "tile center z at (2,3)")
 	assert_almost_eq(q.y, 3.5, 0.001, "level 7 is 3.5 m")

@@ -22,8 +22,14 @@ const INF_CAP := 1 << 20
 
 
 ## Returns the number of tiles that must be blocked, or `cap + 1` if it exceeds the cap.
+##
+## Takes the traversal graph rather than consulting `MapData` directly, so this measures the same
+## graph the connectivity flood fill walks. The two loops below — one to size the arc arrays, one to
+## fill them — must read the *same* predicate: if they ever disagree, the fill writes past the end
+## of `to` and `capacity`, which is a hard runtime error rather than a wrong number.
 static func min_cut(
-	md: MapData, source_tiles: PackedInt32Array, sink_tiles: PackedInt32Array, cap: int
+	md: MapData, source_tiles: PackedInt32Array, sink_tiles: PackedInt32Array, cap: int,
+	g: TraversalGraph
 ) -> int:
 	var n: int = md.n
 	# Node numbering: tile i has in-node 2i and out-node 2i+1.
@@ -40,10 +46,10 @@ static func min_cut(
 	# hundred thousand appends copies the whole graph. It does not fail — it just never finishes.
 	var edges: int = 0
 	for i: int in n:
-		if md.is_passable(i):
+		if g.passable(i):
 			edges += 1
 			for d: int in 8:
-				if md.can_move(i, d):
+				if g.can_move(i, d):
 					edges += 1
 	edges += source_tiles.size() + sink_tiles.size()
 
@@ -59,7 +65,7 @@ static func min_cut(
 	var e_count: int = 0
 
 	for i2: int in n:
-		if not md.is_passable(i2):
+		if not g.passable(i2):
 			continue
 
 		# The tile itself: capacity one, so routing through it costs one tile of the cut.
@@ -74,9 +80,9 @@ static func min_cut(
 		e_count += 2
 
 		for d2: int in 8:
-			if not md.can_move(i2, d2):
+			if not g.can_move(i2, d2):
 				continue
-			var nb: int = md.neighbour(i2, d2)
+			var nb: int = g.edge_target[i2 * 8 + d2]
 			to[e_count] = nb * 2
 			capacity[e_count] = INF_CAP
 			next[e_count] = head[i2 * 2 + 1]
@@ -90,7 +96,7 @@ static func min_cut(
 	# The zones themselves must not be cuttable, or the answer is just "block the deployment zone".
 	for k: int in source_tiles.size():
 		var s: int = source_tiles[k]
-		if not md.is_passable(s):
+		if not g.passable(s):
 			continue
 		to[e_count] = s * 2
 		capacity[e_count] = INF_CAP
@@ -104,7 +110,7 @@ static func min_cut(
 
 	for k2: int in sink_tiles.size():
 		var t: int = sink_tiles[k2]
-		if not md.is_passable(t):
+		if not g.passable(t):
 			continue
 		to[e_count] = super_sink
 		capacity[e_count] = INF_CAP

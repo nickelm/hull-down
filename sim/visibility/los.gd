@@ -77,7 +77,7 @@ static func has_los(md: MapData, cfg: Config, from_tile: int, to_tile: int) -> b
 	return classify(md, cfg, from_tile, to_tile) != Exposure.MASKED
 
 
-## How far the view runs from a tile in one direction before something blocks it, in metres.
+## How far the view runs from a tile in one direction before something blocks it, in meters.
 ##
 ## This is what the sightline metric measures. Marching a ray until it is blocked answers "how far
 ## can you see from here", which is a property of the terrain; measuring the distance between
